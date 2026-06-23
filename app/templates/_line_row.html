@@ -1,0 +1,26 @@
+<tr>
+  <td><input type="date" name="date"
+       value="{{ line.date.isoformat() if line.date else '' }}"
+       onchange="saveLine(this.closest('tr'), {{ line.id }})"></td>
+  <td><input type="text" name="narrative" value="{{ line.narrative }}"
+       onchange="saveLine(this.closest('tr'), {{ line.id }})"></td>
+  <td><input type="text" name="receipt_ref" value="{{ line.receipt_ref }}"
+       size="8" onchange="saveLine(this.closest('tr'), {{ line.id }})"></td>
+  <td>
+    <select name="category" onchange="saveLine(this.closest('tr'), {{ line.id }})">
+      {% for c in categories %}
+        <option value="{{ c.value }}"
+          {{ 'selected' if line.category == c else '' }}>{{ c.value.replace('_',' ') }}</option>
+      {% endfor %}
+    </select>
+  </td>
+  <td><input type="number" step="0.01" name="amount" value="{{ line.amount }}"
+       size="7" onchange="saveLine(this.closest('tr'), {{ line.id }})"></td>
+  <td><input type="checkbox" name="reclaim_vat" {{ 'checked' if line.reclaim_vat }}
+       onchange="saveLine(this.closest('tr'), {{ line.id }})"></td>
+  <td>
+    <input type="file" accept="image/*,application/pdf"
+           onchange="uploadReceipt(this, {{ line.id }})">
+    <div class="ocrnote"></div>
+  </td>
+</tr>

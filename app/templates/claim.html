@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block content %}
+<a href="/">&larr; back</a>
+<h1>Claim {{ claim.unique_ref or "(draft)" }}</h1>
+<p>{{ claim.type.value|capitalize }} · {{ claim.period.month }}/{{ claim.period.year }}
+   · status: <strong id="status">{{ claim.status.value }}</strong></p>
+
+<table id="lines">
+  <thead>
+    <tr>
+      <th>Date</th><th>Detail</th><th>Receipt ref</th><th>Category</th>
+      <th>Amount £</th><th>VAT?</th><th>Receipt</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for line in claim.lines %}
+      {% include "_line_row.html" %}
+    {% endfor %}
+  </tbody>
+</table>
+
+<button hx-post="/claims/{{ claim.id }}/lines"
+        hx-target="#lines tbody" hx-swap="beforeend">+ Add line</button>
+
+<div class="totals">Gross total: £<span id="gross">{{ "%.2f"|format(claim.gross_total) }}</span></div>
+
+<button id="submitbtn" onclick="submitClaim({{ claim.id }})">Submit claim</button>
+<div id="problems"></div>
+
+<script>
+async function uploadReceipt(input, lineId) {
+  const fd = new FormData();
+  fd.append("file", input.files[0]);
+  const row = input.closest("tr");
+  row.querySelector(".ocrnote").textContent = "Reading receipt…";
+  const r = await fetch(`/lines/${lineId}/receipt`, {method:"POST", body:fd});
+  const d = await r.json();
+  if (d.suggest_date)   row.querySelector("[name=date]").value = d.suggest_date;
+  if (d.suggest_amount) row.querySelector("[name=amount]").value = d.suggest_amount;
+  if (d.suggest_merchant && !row.querySelector("[name=narrative]").value)
+      row.querySelector("[name=narrative]").value = d.suggest_merchant;
+  row.querySelector(".ocrnote").textContent =
+      "Pre-filled from receipt — please check and save.";
+  saveLine(row, lineId);
+}
+async function saveLine(row, lineId) {
+  const fd = new FormData();
+  ["date","narrative","receipt_ref","category","amount"].forEach(n =>
+    fd.append(n, row.querySelector(`[name=${n}]`).value));
+  fd.append("reclaim_vat", row.querySelector("[name=reclaim_vat]").checked);
+  const r = await fetch(`/lines/${lineId}`, {method:"POST", body:fd});
+  const d = await r.json();
+  if (d.gross_total != null) document.getElementById("gross").textContent =
+      d.gross_total.toFixed(2);
+}
+async function submitClaim(id) {
+  const r = await fetch(`/claims/${id}/submit`, {method:"POST"});
+  const d = await r.json();
+  const box = document.getElementById("problems");
+  if (d.ok) {
+    document.getElementById("status").textContent = "submitted";
+    box.innerHTML = `<p class="ok">Submitted. Ref ${d.ref}</p>`;
+  } else {
+    box.innerHTML = "<p class='err'>Fix before submitting:</p><ul>" +
+      d.problems.map(p => `<li>${p}</li>`).join("") + "</ul>";
+  }
+}
+</script>
+{% endblock %}

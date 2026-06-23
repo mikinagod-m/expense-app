@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>My claims</h1>
+
+<form method="post" action="/claims/new" class="newclaim">
+  <label>Start a new claim:
+    <select name="period_id" required>
+      {% for p in open_periods %}
+        <option value="{{ p.id }}">
+          {{ p.type.value|capitalize }} — {{ p.month }}/{{ p.year }}
+          (due {{ p.deadline }})
+        </option>
+      {% endfor %}
+    </select>
+  </label>
+  <button type="submit">Create</button>
+</form>
+
+<table>
+  <thead><tr><th>Ref</th><th>Type</th><th>Period</th><th>Status</th><th>Total</th><th></th></tr></thead>
+  <tbody>
+    {% for c in claims %}
+    <tr>
+      <td>{{ c.unique_ref or "—" }}</td>
+      <td>{{ c.type.value }}</td>
+      <td>{{ c.period.month }}/{{ c.period.year }}</td>
+      <td><span class="status {{ c.status.value }}">{{ c.status.value }}</span></td>
+      <td>£{{ "%.2f"|format(c.gross_total) }}</td>
+      <td><a href="/claims/{{ c.id }}">open</a></td>
+    </tr>
+    {% else %}
+    <tr><td colspan="6">No claims yet.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

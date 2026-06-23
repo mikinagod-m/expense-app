@@ -1,0 +1,21 @@
+* { box-sizing: border-box; }
+body { font-family: system-ui, sans-serif; margin: 0; color: #1a1a1a; }
+header { background: #16314f; color: #fff; padding: 12px 20px; }
+header .right { float: right; }
+header a { color: #cfe2ff; }
+main { max-width: 980px; margin: 24px auto; padding: 0 20px; }
+h1 { font-size: 22px; }
+table { width: 100%; border-collapse: collapse; margin: 12px 0; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #e3e3e3; }
+input, select { padding: 5px; border: 1px solid #c5c5c5; border-radius: 4px; }
+button { background: #16314f; color: #fff; border: 0; padding: 9px 16px;
+         border-radius: 6px; cursor: pointer; margin: 8px 0; }
+button:hover { background: #1f4470; }
+.newclaim { background: #f3f6fa; padding: 14px; border-radius: 8px; }
+.totals { font-size: 18px; font-weight: 600; margin: 10px 0; }
+.status { padding: 2px 8px; border-radius: 10px; font-size: 12px; background: #eee; }
+.status.submitted { background: #cfe2ff; }
+.status.approved { background: #d1f0d1; }
+.status.rejected { background: #f6cccc; }
+.ocrnote { font-size: 11px; color: #56708f; margin-top: 2px; }
+.ok { color: #1d6b1d; } .err { color: #b00; }
