@@ -6,3 +6,6 @@ data/*.db
 receipts/*
 !receipts/.gitkeep
 !data/.gitkeep
+.runtime/
+Expense_Management_System_Proposal.pdf
+Expense_Management_System_Roadmap.pdf
