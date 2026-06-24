@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./data/expenses.db"
 
     receipts_dir: str = "./receipts"
+    receipt_max_bytes: int = 10 * 1024 * 1024
     tesseract_cmd: str = ""
 
     aad_tenant_id: str = ""

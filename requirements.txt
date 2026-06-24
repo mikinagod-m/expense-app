@@ -10,5 +10,6 @@ pillow==11.1.0
 pdf2image==1.17.0
 authlib==1.4.0
 httpx==0.28.1
+openpyxl==3.1.5
 # Postgres driver — only needed if you use PostgreSQL instead of SQLite:
 # psycopg[binary]==3.2.3

@@ -11,7 +11,17 @@
   <header>
     <strong>Aimia Expenses</strong>
     {% if user %}
-      <span class="right">{{ user.name }} · <a href="/logout">log out</a></span>
+      <span class="right nav-links">
+        <a href="/">dashboard</a>
+        {% if nav_can_manager %}
+          · <a href="/manager/approvals">manager approvals</a>
+        {% endif %}
+        {% if nav_can_finance %}
+          · <a href="/finance/processing">finance processing</a>
+          · <a href="/finance/reconciliation">reconciliation</a>
+        {% endif %}
+        · {{ user.name }} · <a href="/logout">log out</a>
+      </span>
     {% endif %}
   </header>
   <main>

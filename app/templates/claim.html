@@ -12,46 +12,178 @@
       <th>Amount £</th><th>VAT?</th><th>Receipt</th>
     </tr>
   </thead>
-  <tbody>
+  <tbody id="line-rows">
     {% for line in claim.lines %}
       {% include "_line_row.html" %}
     {% endfor %}
   </tbody>
 </table>
 
-<button hx-post="/claims/{{ claim.id }}/lines"
+<button id="add-line-btn" hx-post="/claims/{{ claim.id }}/lines"
         hx-target="#lines tbody" hx-swap="beforeend">+ Add line</button>
+<p class="hint">Rows auto-save while you type. Add line, tab through fields, and upload receipt when ready.</p>
 
 <div class="totals">Gross total: £<span id="gross">{{ "%.2f"|format(claim.gross_total) }}</span></div>
 
 <button id="submitbtn" onclick="submitClaim({{ claim.id }})">Submit claim</button>
 <div id="problems"></div>
 
+<h2>History</h2>
+{% if events %}
+<table>
+  <thead>
+    <tr><th>When</th><th>Actor</th><th>Action</th><th>Detail</th></tr>
+  </thead>
+  <tbody>
+    {% for e in events %}
+    <tr>
+      <td>{{ e.at }}</td>
+      <td>{{ e.actor_name }}</td>
+      <td>{{ e.action }}</td>
+      <td>{{ e.detail }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="hint">No audit events yet for this claim.</p>
+{% endif %}
+
 <script>
+const saveTimers = new Map();
+
+function setRowSaveState(row, text, cssClass) {
+  const node = row.querySelector(".savestate");
+  if (!node) return;
+  node.textContent = text;
+  node.className = `savestate ${cssClass || ""}`.trim();
+}
+
+function queueSave(row, lineId, delayMs = 350) {
+  const existing = saveTimers.get(lineId);
+  if (existing) clearTimeout(existing);
+  setRowSaveState(row, "Saving…", "saving");
+  const timer = setTimeout(() => saveLine(row, lineId), delayMs);
+  saveTimers.set(lineId, timer);
+}
+
+function bindLineRow(row) {
+  if (!row || row.dataset.bound === "1") return;
+  const lineId = Number(row.dataset.lineId);
+  if (!lineId) return;
+  row.dataset.bound = "1";
+
+  const textLikeInputs = row.querySelectorAll("input[name=narrative], input[name=receipt_ref], input[name=amount]");
+  textLikeInputs.forEach((el) => {
+    el.addEventListener("input", () => queueSave(row, lineId));
+    el.addEventListener("blur", () => queueSave(row, lineId, 0));
+  });
+
+  const dateInput = row.querySelector("input[name=date]");
+  if (dateInput) dateInput.addEventListener("change", () => queueSave(row, lineId, 0));
+
+  const categoryInput = row.querySelector("select[name=category]");
+  if (categoryInput) categoryInput.addEventListener("change", () => queueSave(row, lineId, 0));
+
+  const vatInput = row.querySelector("input[name=reclaim_vat]");
+  if (vatInput) vatInput.addEventListener("change", () => queueSave(row, lineId, 0));
+
+  const amountInput = row.querySelector("input[name=amount]");
+  if (amountInput) {
+    amountInput.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      const addBtn = document.getElementById("add-line-btn");
+      if (addBtn) addBtn.click();
+    });
+  }
+}
+
+function initLineRows(focusNewest = false) {
+  const rows = [...document.querySelectorAll("#line-rows tr.line-row")];
+  rows.forEach(bindLineRow);
+  if (focusNewest && rows.length) {
+    const focusTarget = rows[rows.length - 1].querySelector("input[name=date]");
+    if (focusTarget) focusTarget.focus();
+  }
+}
+
 async function uploadReceipt(input, lineId) {
+  const row = input.closest("tr");
+  const note = row.querySelector(".ocrnote");
+  const errBox = row.querySelector(".lineerr");
+  errBox.textContent = "";
+  setRowSaveState(row, "Saving…", "saving");
+
+  if (!input.files || !input.files[0]) {
+    note.textContent = "No file selected.";
+    return;
+  }
+
   const fd = new FormData();
   fd.append("file", input.files[0]);
-  const row = input.closest("tr");
-  row.querySelector(".ocrnote").textContent = "Reading receipt…";
-  const r = await fetch(`/lines/${lineId}/receipt`, {method:"POST", body:fd});
-  const d = await r.json();
-  if (d.suggest_date)   row.querySelector("[name=date]").value = d.suggest_date;
-  if (d.suggest_amount) row.querySelector("[name=amount]").value = d.suggest_amount;
-  if (d.suggest_merchant && !row.querySelector("[name=narrative]").value)
+  note.textContent = "Uploading and reading receipt…";
+
+  try {
+    const r = await fetch(`/lines/${lineId}/receipt`, {method:"POST", body:fd});
+    const d = await r.json();
+    if (!r.ok || d.ok === false) {
+      note.textContent = d.message || "Receipt upload failed. Please try again.";
+      return;
+    }
+
+    let prefilled = false;
+    if (d.suggest_date) {
+      row.querySelector("[name=date]").value = d.suggest_date;
+      prefilled = true;
+    }
+    if (d.suggest_amount) {
+      row.querySelector("[name=amount]").value = d.suggest_amount;
+      prefilled = true;
+    }
+    if (d.suggest_merchant && !row.querySelector("[name=narrative]").value) {
       row.querySelector("[name=narrative]").value = d.suggest_merchant;
-  row.querySelector(".ocrnote").textContent =
-      "Pre-filled from receipt — please check and save.";
-  saveLine(row, lineId);
+      prefilled = true;
+    }
+
+    note.textContent = d.message || "Receipt uploaded.";
+    if (d.ocr_confidence_label) {
+      const pct = typeof d.ocr_confidence_score === "number"
+        ? ` (${Math.round(d.ocr_confidence_score * 100)}%)`
+        : "";
+      note.textContent += ` OCR confidence: ${d.ocr_confidence_label.toUpperCase()}${pct}.`;
+    }
+    if (d.possible_duplicate && Array.isArray(d.duplicate_reasons) && d.duplicate_reasons.length) {
+      note.textContent += " Potential duplicate: " + d.duplicate_reasons.join(" ");
+    }
+    if (prefilled) {
+      await saveLine(row, lineId);
+    }
+  } catch (e) {
+    note.textContent = "Receipt upload failed. Check connection and try again.";
+  } finally {
+    input.value = "";
+  }
 }
 async function saveLine(row, lineId) {
   const fd = new FormData();
   ["date","narrative","receipt_ref","category","amount"].forEach(n =>
     fd.append(n, row.querySelector(`[name=${n}]`).value));
   fd.append("reclaim_vat", row.querySelector("[name=reclaim_vat]").checked);
+  const errBox = row.querySelector(".lineerr");
+  errBox.textContent = "";
+  setRowSaveState(row, "Saving…", "saving");
   const r = await fetch(`/lines/${lineId}`, {method:"POST", body:fd});
   const d = await r.json();
-  if (d.gross_total != null) document.getElementById("gross").textContent =
-      d.gross_total.toFixed(2);
+  if (!r.ok || d.ok === false) {
+    errBox.textContent = (d.errors || ["Unable to save line."]).join(" ");
+    setRowSaveState(row, "Needs attention", "error");
+    return;
+  }
+  if (d.gross_total != null) {
+    document.getElementById("gross").textContent = d.gross_total.toFixed(2);
+  }
+  setRowSaveState(row, "Saved", "saved");
 }
 async function submitClaim(id) {
   const r = await fetch(`/claims/${id}/submit`, {method:"POST"});
@@ -65,5 +197,13 @@ async function submitClaim(id) {
       d.problems.map(p => `<li>${p}</li>`).join("") + "</ul>";
   }
 }
+
+document.body.addEventListener("htmx:afterSwap", (event) => {
+  if (event.target && event.target.id === "line-rows") {
+    initLineRows(true);
+  }
+});
+
+initLineRows(false);
 </script>
 {% endblock %}

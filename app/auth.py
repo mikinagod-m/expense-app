@@ -7,6 +7,7 @@ On real login, the Azure AD profile (name, email, oid) is upserted into the
 """
 from fastapi import Request, HTTPException
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from .config import settings
 from .db import SessionLocal
@@ -28,8 +29,45 @@ def require_user(request: Request) -> User:
     return user
 
 
+def user_is_manager(db: Session, user: User) -> bool:
+    """A user is treated as manager when at least one user reports to them."""
+    return db.scalar(select(User.id).where(User.manager_id == user.id).limit(1)) is not None
+
+
+def require_manager_or_finance(request: Request, db: Session) -> User:
+    user = require_user(request)
+    if user.is_finance or user_is_manager(db, user):
+        return user
+    raise HTTPException(status_code=403, detail="Manager or finance role required")
+
+
+def require_finance(request: Request) -> User:
+    user = require_user(request)
+    if user.is_finance:
+        return user
+    raise HTTPException(status_code=403, detail="Finance role required")
+
+
 # --- Azure AD OIDC (used when DEV_LOGIN=0) ---
+def missing_aad_settings() -> list[str]:
+    missing = []
+    if not settings.aad_tenant_id.strip():
+        missing.append("AAD_TENANT_ID")
+    if not settings.aad_client_id.strip():
+        missing.append("AAD_CLIENT_ID")
+    if not settings.aad_client_secret.strip():
+        missing.append("AAD_CLIENT_SECRET")
+    if not settings.aad_redirect_uri.strip():
+        missing.append("AAD_REDIRECT_URI")
+    return missing
+
+
 def build_oauth():
+    missing = missing_aad_settings()
+    if missing:
+        joined = ", ".join(missing)
+        raise ValueError(f"Azure AD auth is not configured. Missing: {joined}")
+
     from authlib.integrations.starlette_client import OAuth
     oauth = OAuth()
     oauth.register(

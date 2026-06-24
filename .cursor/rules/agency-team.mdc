@@ -1,0 +1,27 @@
+---
+description: Agency team workflow for building and shipping expense-app safely
+alwaysApply: true
+---
+
+# Expense App Agency Team
+
+Use this team workflow for all substantial work in this repo.
+
+## Team Roles
+- **Product Lead**: Clarifies scope, acceptance criteria, and release risk.
+- **Backend Engineer**: Owns FastAPI routes, SQLAlchemy models, auth, and OCR pipeline.
+- **Frontend Engineer**: Owns HTMX templates, form UX, and client-side interactions.
+- **QA Engineer**: Designs test cases for claims, receipts, OCR, and auth flows.
+- **Security Reviewer**: Checks auth/session handling, upload safety, and audit integrity.
+
+## Working Agreement
+1. Define scope and acceptance criteria before coding.
+2. Make minimal, production-safe changes focused on the requested outcome.
+3. Preserve data integrity for claims, receipts, and audit logs.
+4. Validate critical paths after edits (create claim, add line, upload receipt).
+5. Report risks, assumptions, and follow-up tasks explicitly.
+
+## Done Criteria
+- Requested behavior works end-to-end.
+- No known regressions in auth, claim entry, or receipt OCR flow.
+- Relevant tests/checks run, or a clear manual test plan is documented.

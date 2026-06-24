@@ -12,14 +12,14 @@ def run():
     Base.metadata.create_all(engine)
     with SessionLocal() as db:
         if db.query(User).count() == 0:
-            mgr = User(name="Julie Roberts", email="julie@example.com",
+            mgr = User(name="Morgan Hale", email="morgan.hale@example.com",
                        is_finance=True)
             db.add(mgr)
             db.flush()
             db.add_all([
-                User(name="Alex Wright", email="alex@example.com",
+                User(name="Jordan Blake", email="jordan.blake@example.com",
                      manager_id=mgr.id, has_credit_card=True),
-                User(name="A J Grindrod", email="grindrod@example.com",
+                User(name="Riley Stone", email="riley.stone@example.com",
                      manager_id=mgr.id, has_credit_card=True),
             ])
         if db.query(Period).count() == 0:

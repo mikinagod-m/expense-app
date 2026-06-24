@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block content %}
+<a href="/">&larr; back</a>
+<h1>Manager approvals</h1>
+<p>Review submitted claims and approve or reject directly from this queue.</p>
+
+<div id="msg" class="hint"></div>
+
+<table id="pending-table">
+  <thead>
+    <tr>
+      <th>Claim ID</th>
+      <th>Reference</th>
+      <th>Claimant</th>
+      <th>Type</th>
+      <th>Period</th>
+      <th>Total</th>
+      <th>Action</th>
+    </tr>
+  </thead>
+  <tbody id="pending-rows">
+    <tr><td colspan="7">Loading pending claims...</td></tr>
+  </tbody>
+</table>
+
+<script>
+const messageBox = document.getElementById("msg");
+const rowsNode = document.getElementById("pending-rows");
+
+function setMessage(text, type = "") {
+  messageBox.textContent = text;
+  messageBox.className = `hint ${type}`.trim();
+}
+
+function currency(v) {
+  const n = Number(v || 0);
+  return `£${n.toFixed(2)}`;
+}
+
+function rowHtml(c) {
+  return `
+    <tr data-claim-id="${c.id}">
+      <td>${c.id}</td>
+      <td>${c.ref || "—"}</td>
+      <td>${c.claimant_name || `User ${c.user_id}`}</td>
+      <td>${c.type || "—"}</td>
+      <td>${c.period_label || c.period_id}</td>
+      <td>${currency(c.gross_total)}</td>
+      <td>
+        <button onclick="decide(${c.id}, 'approved')">Approve</button>
+        <button class="danger" onclick="decide(${c.id}, 'rejected')">Reject</button>
+      </td>
+    </tr>
+  `;
+}
+
+async function loadPending() {
+  setMessage("Loading pending approvals...");
+  try {
+    const r = await fetch("/manager/claims/pending");
+    if (r.status === 401 || r.status === 403) {
+      setMessage("Access denied. You need manager or finance permissions.", "err");
+      rowsNode.innerHTML = "<tr><td colspan='7'>No access to this queue.</td></tr>";
+      return;
+    }
+    const d = await r.json();
+    if (!r.ok || d.ok === false) {
+      setMessage("Unable to load pending claims.", "err");
+      rowsNode.innerHTML = "<tr><td colspan='7'>Failed to load queue.</td></tr>";
+      return;
+    }
+    if (!d.claims || d.claims.length === 0) {
+      setMessage("No submitted claims are waiting for review.", "ok");
+      rowsNode.innerHTML = "<tr><td colspan='7'>Queue is empty.</td></tr>";
+      return;
+    }
+    rowsNode.innerHTML = d.claims.map(rowHtml).join("");
+    setMessage(`Loaded ${d.claims.length} pending claim(s).`, "ok");
+  } catch (e) {
+    setMessage("Network error while loading approvals.", "err");
+    rowsNode.innerHTML = "<tr><td colspan='7'>Network error.</td></tr>";
+  }
+}
+
+async function decide(claimId, decision) {
+  let comment = "";
+  if (decision === "rejected") {
+    comment = prompt("Optional rejection comment for claimant:", "") || "";
+  }
+  const fd = new FormData();
+  fd.append("decision", decision);
+  fd.append("comment", comment);
+
+  try {
+    const r = await fetch(`/manager/claims/${claimId}/decision`, { method: "POST", body: fd });
+    const d = await r.json();
+    if (!r.ok || d.ok === false) {
+      const detail = d.detail || "Unable to apply decision.";
+      setMessage(detail, "err");
+      return;
+    }
+    setMessage(`Claim ${claimId} marked ${d.status}.`, "ok");
+    await loadPending();
+  } catch (e) {
+    setMessage("Network error while applying decision.", "err");
+  }
+}
+
+loadPending();
+</script>
+{% endblock %}

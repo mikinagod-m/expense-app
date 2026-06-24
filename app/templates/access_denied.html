@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{{ title or "Access denied" }}</h1>
+<p>{{ message or "You do not have permission to access this page." }}</p>
+<p><a href="/">Return to dashboard</a></p>
+{% endblock %}

@@ -1,0 +1,182 @@
+{% extends "base.html" %}
+{% block content %}
+<a href="/">&larr; back</a>
+<h1>Finance reconciliation</h1>
+<p>Match card statement lines against card claim lines and track unmatched/missing items.</p>
+
+<div id="msg" class="hint"></div>
+
+<div class="filters">
+  <label>Period
+    <input id="r-period" type="text" placeholder="all or YYYY-MM" value="all">
+  </label>
+  <label>Show
+    <select id="r-show">
+      <option value="all">all</option>
+      <option value="attention">attention only</option>
+    </select>
+  </label>
+  <button onclick="applyReconFilters()">Apply</button>
+</div>
+
+<h2>Statement lines</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Statement ID</th>
+      <th>Date</th>
+      <th>Cardholder</th>
+      <th>Merchant</th>
+      <th>Statement £</th>
+      <th>Status</th>
+      <th>Matched claim</th>
+      <th>Manual match</th>
+    </tr>
+  </thead>
+  <tbody id="statement-rows">
+    <tr><td colspan="8">Loading statement lines...</td></tr>
+  </tbody>
+</table>
+
+<h2>Missing statement entries</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Claim line</th>
+      <th>Claim ref</th>
+      <th>Claimant</th>
+      <th>Date</th>
+      <th>Detail</th>
+      <th>Claim £</th>
+      <th>Status</th>
+    </tr>
+  </thead>
+  <tbody id="missing-rows">
+    <tr><td colspan="7">Loading missing rows...</td></tr>
+  </tbody>
+</table>
+
+<script>
+const reconMessage = document.getElementById("msg");
+const statementRowsNode = document.getElementById("statement-rows");
+const missingRowsNode = document.getElementById("missing-rows");
+const periodNode = document.getElementById("r-period");
+const showNode = document.getElementById("r-show");
+
+let reconFilters = { period: "all", show: "all" };
+
+function setReconMessage(text, type = "") {
+  reconMessage.textContent = text;
+  reconMessage.className = `hint ${type}`.trim();
+}
+
+function money(v) {
+  const n = Number(v || 0);
+  return `£${n.toFixed(2)}`;
+}
+
+function query() {
+  const params = new URLSearchParams({
+    period: reconFilters.period || "all",
+    show: reconFilters.show || "all",
+  });
+  return params.toString();
+}
+
+function statementRowHtml(r) {
+  const matched = r.claim_line_id
+    ? `#${r.claim_line_id} (${r.claim_ref || "no-ref"})`
+    : "—";
+  const action = r.status === "unmatched_statement"
+    ? `<input type="number" min="1" placeholder="claim_line_id" id="match-${r.statement_line_id}" style="width:120px">
+       <button onclick="matchStatement(${r.statement_line_id})">Match</button>`
+    : "—";
+  return `
+    <tr>
+      <td>${r.statement_line_id}</td>
+      <td>${r.date || "—"}</td>
+      <td>${r.cardholder || "—"}</td>
+      <td>${r.merchant || "—"}</td>
+      <td>${money(r.statement_amount)}</td>
+      <td>${r.status}</td>
+      <td>${matched}</td>
+      <td>${action}</td>
+    </tr>
+  `;
+}
+
+function missingRowHtml(r) {
+  return `
+    <tr>
+      <td>#${r.claim_line_id}</td>
+      <td>${r.claim_ref || "—"}</td>
+      <td>${r.claimant || "—"}</td>
+      <td>${r.date || "—"}</td>
+      <td>${r.merchant_hint || "—"}</td>
+      <td>${money(r.claim_amount)}</td>
+      <td>${r.status}</td>
+    </tr>
+  `;
+}
+
+async function loadRecon() {
+  setReconMessage("Loading reconciliation data...");
+  try {
+    const r = await fetch(`/finance/reconciliation/data?${query()}`);
+    if (r.status === 401 || r.status === 403) {
+      setReconMessage("Access denied. You need finance permissions.", "err");
+      statementRowsNode.innerHTML = "<tr><td colspan='8'>No access.</td></tr>";
+      missingRowsNode.innerHTML = "<tr><td colspan='7'>No access.</td></tr>";
+      return;
+    }
+    const d = await r.json();
+    if (!r.ok || d.ok === false) {
+      setReconMessage(d.detail || "Unable to load reconciliation data.", "err");
+      return;
+    }
+
+    statementRowsNode.innerHTML = d.statement_rows.length
+      ? d.statement_rows.map(statementRowHtml).join("")
+      : "<tr><td colspan='8'>No statement lines for this filter.</td></tr>";
+    missingRowsNode.innerHTML = d.missing_claim_rows.length
+      ? d.missing_claim_rows.map(missingRowHtml).join("")
+      : "<tr><td colspan='7'>No missing claim lines for this filter.</td></tr>";
+    const s = d.summary || {};
+    setReconMessage(`Matched: ${s.matched || 0} · Unmatched statement: ${s.unmatched_statement || 0} · Missing statement: ${s.missing_statement || 0}`, "ok");
+  } catch (e) {
+    setReconMessage("Network error while loading reconciliation data.", "err");
+  }
+}
+
+function applyReconFilters() {
+  reconFilters.period = (periodNode.value || "all").trim() || "all";
+  reconFilters.show = showNode.value || "all";
+  loadRecon();
+}
+
+async function matchStatement(statementLineId) {
+  const input = document.getElementById(`match-${statementLineId}`);
+  const claimLineId = Number(input && input.value);
+  if (!claimLineId || claimLineId < 1) {
+    setReconMessage("Enter a valid claim_line_id to match.", "err");
+    return;
+  }
+  const fd = new FormData();
+  fd.append("claim_line_id", String(claimLineId));
+  try {
+    const r = await fetch(`/finance/reconciliation/statement-lines/${statementLineId}/match`, { method: "POST", body: fd });
+    const d = await r.json();
+    if (!r.ok || d.ok === false) {
+      setReconMessage(d.detail || "Unable to apply match.", "err");
+      return;
+    }
+    setReconMessage(`Matched statement line ${statementLineId} to claim line ${claimLineId}.`, "ok");
+    await loadRecon();
+  } catch (e) {
+    setReconMessage("Network error while matching statement line.", "err");
+  }
+}
+
+loadRecon();
+</script>
+{% endblock %}

@@ -1,13 +1,11 @@
-<tr>
+<tr class="line-row" data-line-id="{{ line.id }}">
   <td><input type="date" name="date"
-       value="{{ line.date.isoformat() if line.date else '' }}"
-       onchange="saveLine(this.closest('tr'), {{ line.id }})"></td>
-  <td><input type="text" name="narrative" value="{{ line.narrative }}"
-       onchange="saveLine(this.closest('tr'), {{ line.id }})"></td>
+       value="{{ line.date.isoformat() if line.date else '' }}"></td>
+  <td><input type="text" name="narrative" value="{{ line.narrative }}"></td>
   <td><input type="text" name="receipt_ref" value="{{ line.receipt_ref }}"
-       size="8" onchange="saveLine(this.closest('tr'), {{ line.id }})"></td>
+       size="8"></td>
   <td>
-    <select name="category" onchange="saveLine(this.closest('tr'), {{ line.id }})">
+    <select name="category">
       {% for c in categories %}
         <option value="{{ c.value }}"
           {{ 'selected' if line.category == c else '' }}>{{ c.value.replace('_',' ') }}</option>
@@ -15,12 +13,13 @@
     </select>
   </td>
   <td><input type="number" step="0.01" name="amount" value="{{ line.amount }}"
-       size="7" onchange="saveLine(this.closest('tr'), {{ line.id }})"></td>
-  <td><input type="checkbox" name="reclaim_vat" {{ 'checked' if line.reclaim_vat }}
-       onchange="saveLine(this.closest('tr'), {{ line.id }})"></td>
+       size="7"></td>
+  <td><input type="checkbox" name="reclaim_vat" {{ 'checked' if line.reclaim_vat }}></td>
   <td>
     <input type="file" accept="image/*,application/pdf"
            onchange="uploadReceipt(this, {{ line.id }})">
     <div class="ocrnote"></div>
+    <div class="savestate">Not saved yet</div>
+    <div class="lineerr" style="color:#9d3a3a;"></div>
   </td>
 </tr>

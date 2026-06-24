@@ -32,13 +32,39 @@ def _to_image(data: bytes, filename: str) -> Image.Image:
     return Image.open(io.BytesIO(data))
 
 
+def _confidence_hint(ocr_date: str | None, ocr_merchant: str | None, ocr_amount: float | None) -> tuple[float, str]:
+    """Simple explainable confidence score for user guidance."""
+    score = 0.0
+    if ocr_date:
+        score += 0.34
+    if ocr_merchant:
+        score += 0.33
+    if ocr_amount is not None:
+        score += 0.33
+
+    if score >= 0.85:
+        label = "high"
+    elif score >= 0.5:
+        label = "medium"
+    else:
+        label = "low"
+    return round(score, 2), label
+
+
 def parse_receipt(data: bytes, filename: str) -> dict:
     try:
         img = _to_image(data, filename)
         text = pytesseract.image_to_string(img)
     except Exception as e:  # OCR is best-effort; never block the upload
-        return {"ocr_date": None, "ocr_merchant": None, "ocr_amount": None,
-                "error": str(e)}
+        score, label = _confidence_hint(None, None, None)
+        return {
+            "ocr_date": None,
+            "ocr_merchant": None,
+            "ocr_amount": None,
+            "ocr_confidence_score": score,
+            "ocr_confidence_label": label,
+            "error": str(e),
+        }
 
     lines = [l.strip() for l in text.splitlines() if l.strip()]
 
@@ -67,5 +93,12 @@ def parse_receipt(data: bytes, filename: str) -> dict:
         all_amounts = [float(a.replace(",", "")) for a in _AMOUNT_RE.findall(text)]
         amount = max(all_amounts) if all_amounts else None
 
-    return {"ocr_date": date, "ocr_merchant": merchant[:200] if merchant else None,
-            "ocr_amount": amount}
+    ocr_merchant = merchant[:200] if merchant else None
+    score, label = _confidence_hint(date, ocr_merchant, amount)
+    return {
+        "ocr_date": date,
+        "ocr_merchant": ocr_merchant,
+        "ocr_amount": amount,
+        "ocr_confidence_score": score,
+        "ocr_confidence_label": label,
+    }

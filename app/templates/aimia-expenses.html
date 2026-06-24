@@ -1,0 +1,462 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aimia Expenses</title>
+<style>
+:root{
+  --bg:#fcfcfa;--panel:#ffffff;--ink:#1a1a17;--muted:#6b6a63;--dim:#9c9b92;
+  --line:#e7e5dd;--line-2:#d8d6cc;--field:#f6f5f0;
+  --navy:#1f3a5f;--navy-2:#27497a;--sage:#5f7a5b;--clay:#a85a3c;--gold:#9a7b1e;
+  --sage-bg:#e4ecde;--sage-bd:#c4d4bd;--clay-bg:#f4e3da;--gold-bg:#f6efd6;--navy-bg:#e2ecf3;
+  --red:#9d3a3a;--red-bg:#f1dede;
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,"Times New Roman",serif;
+  --sans:ui-sans-serif,"Inter","Helvetica Neue",system-ui,-apple-system,sans-serif;
+  --mono:ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
+  --shadow:0 1px 2px rgba(26,26,23,.04),0 12px 32px -22px rgba(26,26,23,.45);
+  --sidebar:248px;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.6}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+button{font-family:inherit}
+
+.app{display:grid;grid-template-columns:var(--sidebar) 1fr;min-height:100vh}
+.sidebar{position:sticky;top:0;height:100vh;border-right:1px solid var(--line);overflow-y:auto;
+  background:linear-gradient(180deg,#fbfaf6,var(--bg));display:flex;flex-direction:column;padding:22px 16px;gap:4px}
+.brand{display:flex;align-items:center;gap:10px;padding:6px 10px 16px;font-family:var(--serif);font-size:19px;font-weight:600}
+.brand .m{width:30px;height:30px;border-radius:8px;background:var(--navy);color:#fff;display:grid;place-items:center;font-family:var(--serif);font-size:14px;font-weight:600}
+.brand b{color:var(--navy)}
+.roleswitch{margin:0 6px 12px;background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:4px;display:flex;gap:2px}
+.roleswitch button{flex:1;border:0;background:none;padding:7px 4px;border-radius:6px;font-size:11px;font-weight:600;color:var(--muted);cursor:pointer;transition:background .15s,color .15s}
+.roleswitch button.on{background:var(--navy);color:#fff}
+.role-hint{font-size:10px;color:var(--dim);padding:0 12px 10px;line-height:1.5}
+.nav-item{display:flex;align-items:center;gap:12px;padding:11px 12px;border-radius:8px;color:var(--muted);cursor:pointer;font-size:14px;font-weight:500;border:1px solid transparent;transition:background .15s,color .15s}
+.nav-item:hover{background:#fbfaf6;color:var(--ink)}
+.nav-item.on{background:var(--panel);color:var(--navy);border-color:var(--line);box-shadow:var(--shadow);font-weight:600}
+.nav-item .i{width:18px;text-align:center;font-size:15px}
+.nav-item .badge{margin-left:auto;font-family:var(--mono);font-size:11px;background:var(--clay);color:#fff;border-radius:999px;padding:1px 8px;min-width:20px;text-align:center}
+.nav-sep{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--dim);padding:18px 12px 8px;font-weight:600}
+.side-foot{margin-top:auto;display:flex;align-items:center;gap:10px;padding:12px;border-top:1px solid var(--line);color:var(--muted);font-size:13px}
+.av{width:32px;height:32px;border-radius:50%;background:var(--navy);color:#fff;display:grid;place-items:center;font-family:var(--serif);font-size:13px;font-weight:600;flex-shrink:0}
+.side-foot .who{line-height:1.25}.side-foot .who small{color:var(--dim);font-size:11px}
+
+.main{min-width:0;display:flex;flex-direction:column}
+.topbar{display:none}
+.content{padding:36px 44px 64px;flex:1}
+.view{display:none}.view.on{display:block;animation:fd .4s ease both}
+@keyframes fd{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
+.kicker{font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--clay);font-weight:600;margin:0 0 10px}
+h1{font-family:var(--serif);font-size:36px;line-height:1.1;letter-spacing:-.01em;margin:0 0 8px;font-weight:600}
+.lede{color:var(--muted);font-size:16px;margin:0 0 34px;max-width:64ch}
+.sec-label{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--dim);font-weight:600;margin:34px 0 16px}
+
+.grid-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+.scard{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px 22px;box-shadow:var(--shadow)}
+.scard .n{font-family:var(--serif);font-size:30px;font-weight:600;letter-spacing:-.01em;line-height:1}
+.scard .n.clay{color:var(--clay)}.scard .n.navy{color:var(--navy)}.scard .n.sage{color:var(--sage)}.scard .n.gold{color:var(--gold)}
+.scard .l{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-top:10px}
+.scard .sub{font-size:12px;color:var(--dim);margin-top:4px}
+
+.dash-row{display:grid;grid-template-columns:1.4fr 1fr;gap:16px;margin-top:24px}
+.box{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:22px;box-shadow:var(--shadow)}
+.box h3{font-family:var(--serif);font-size:18px;font-weight:600;margin:0 0 4px}
+.box .hint{font-size:12px;color:var(--dim);margin:0 0 18px}
+.bars{display:flex;flex-direction:column;gap:13px}
+.bar{display:grid;grid-template-columns:140px 1fr 78px;align-items:center;gap:12px;font-size:13px}
+.bar .cap{color:var(--muted)}
+.bar .track{height:10px;background:var(--field);border-radius:6px;overflow:hidden;display:block}
+.bar .fill{display:block;height:100%;border-radius:6px;background:var(--navy);width:0;transition:width .9s cubic-bezier(.2,.7,.2,1)}
+.bar .val{font-family:var(--mono);text-align:right;font-variant-numeric:tabular-nums}
+.donut-wrap{display:flex;align-items:center;gap:24px}
+.donut{width:140px;height:140px;flex-shrink:0}
+.legend{display:flex;flex-direction:column;gap:10px;font-size:13px}
+.legend .li{display:flex;align-items:center;gap:9px}.legend .sw{width:11px;height:11px;border-radius:3px}.legend .li b{font-family:var(--mono);margin-left:auto;padding-left:14px}
+
+.starts{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--line);border:1px solid var(--line);border-radius:8px;overflow:hidden;margin-bottom:36px}
+.start{background:var(--panel);padding:26px 28px;cursor:pointer;transition:background .2s;position:relative}
+.start:hover{background:#fbfaf6}.start:focus-visible{outline:2px solid var(--navy);outline-offset:-2px}
+.start .t{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--clay);font-weight:600}
+.start .m{font-family:var(--serif);font-size:24px;font-weight:600;margin:8px 0 4px}
+.start .d{font-size:13px;color:var(--muted)}
+.start .arr{position:absolute;right:26px;bottom:24px;color:var(--navy);font-size:18px;transition:transform .2s}
+.start:hover .arr{transform:translateX(4px)}
+
+table.ledger{width:100%;border-collapse:collapse}
+.ledger th{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);text-align:left;font-weight:600;padding:0 10px 14px;border-bottom:2px solid var(--ink);white-space:nowrap}
+.ledger th.r,.ledger td.r{text-align:right}.ledger th.c,.ledger td.c{text-align:center}
+.ledger td{padding:15px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
+.ledger tbody tr.clickable{cursor:pointer}.ledger tbody tr.clickable:hover td{background:#fbfaf6}
+.ref{font-family:var(--mono);font-size:13px;color:var(--navy)}.ref.dr{color:var(--dim)}
+.amt{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:14px}
+.small{font-size:13px;color:var(--muted)}
+.pill{font-size:12px;padding:4px 11px;border-radius:4px;font-weight:600;white-space:nowrap}
+.pill.draft{color:var(--gold);background:var(--gold-bg)}.pill.submitted{color:var(--clay);background:var(--clay-bg)}
+.pill.approved{color:var(--sage);background:var(--sage-bg)}.pill.processed{color:var(--muted);background:var(--field)}
+.pill.rejected{color:var(--red);background:var(--red-bg)}.pill.matched{color:var(--sage);background:var(--sage-bg)}
+.pill.unmatched{color:var(--clay);background:var(--clay-bg)}.pill.missing{color:var(--red);background:var(--red-bg)}
+.flag-vat{font-family:var(--mono);font-size:11px;color:var(--navy);background:var(--navy-bg);border-radius:3px;padding:1px 6px}
+
+.btn{border:0;border-radius:6px;padding:10px 16px;font-weight:600;cursor:pointer;font-size:13px;transition:filter .15s,background .15s}
+.btn.primary{background:var(--navy);color:#fff}.btn.primary:hover{background:var(--navy-2)}
+.btn.approve{background:var(--sage);color:#fff}.btn.reject{background:var(--field);color:var(--red);border:1px solid var(--red-bg)}
+.btn.ghost{background:var(--field);color:var(--ink);border:1px solid var(--line-2)}.btn.sm{padding:7px 12px;font-size:12px}
+.toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:18px}.toolbar .spacer{flex:1}
+
+.filters{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;margin-bottom:8px}
+.fld{display:flex;flex-direction:column;gap:6px}
+.fld label{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);font-weight:600}
+.fld select,.fld input{font:inherit;background:var(--panel);border:1px solid var(--line-2);border-radius:6px;padding:9px 12px;color:var(--ink);min-width:150px}
+.fld select:focus,.fld input:focus{outline:0;border-color:var(--navy)}
+
+.exports{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:22px 0}
+.exp{display:flex;align-items:center;gap:14px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px;cursor:pointer;box-shadow:var(--shadow);transition:transform .18s,border-color .18s;text-align:left;width:100%}
+.exp:hover{transform:translateY(-3px);border-color:var(--line-2)}
+.exp .ei{width:40px;height:40px;border-radius:9px;display:grid;place-items:center;font-family:var(--mono);font-size:12px;font-weight:700;flex-shrink:0}
+.exp.csv .ei{background:var(--sage-bg);color:var(--sage)}.exp.xlsx .ei{background:var(--navy-bg);color:var(--navy)}.exp.pdf .ei{background:var(--clay-bg);color:var(--clay)}
+.exp .et{font-weight:600;font-size:14px}.exp .ed{font-size:12px;color:var(--muted)}
+.report-meta{font-size:13px;color:var(--muted);margin:0 0 14px}.report-meta b{color:var(--ink);font-family:var(--mono)}
+
+.back{background:none;border:0;color:var(--navy);font-size:13px;cursor:pointer;padding:0;margin-bottom:18px}
+.chead{display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:18px;margin-bottom:8px}
+.cmeta{font-size:13px;color:var(--muted)}.cmeta b{color:var(--ink);font-weight:600}
+.build{display:grid;grid-template-columns:1fr 300px;gap:40px;align-items:start;margin-top:30px}
+.lines{border-top:2px solid var(--ink)}
+.line{padding:20px 0;border-bottom:1px solid var(--line);display:grid;grid-template-columns:130px 1fr 160px 120px 30px;gap:16px;align-items:center;animation:li .35s ease both}
+@keyframes li{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:none}}
+.line input,.line select{width:100%;font:inherit;background:transparent;border:0;border-bottom:1px solid var(--line-2);padding:7px 2px;color:var(--ink);transition:border-color .15s}
+.line input:focus,.line select:focus{outline:0;border-bottom-color:var(--navy)}
+.line input[name=amount]{font-family:var(--mono);text-align:right}
+.line .rm{background:none;border:0;color:var(--dim);font-size:18px;cursor:pointer}.line .rm:hover{color:var(--clay)}
+.line .meta{grid-column:1/6;display:flex;gap:18px;align-items:center;flex-wrap:wrap;margin-top:2px}
+.chk{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--muted)}.chk input{accent-color:var(--navy)}
+.upl{font-size:12px;color:var(--navy);border:1px solid var(--line-2);background:var(--field);border-radius:4px;padding:6px 13px;cursor:pointer}.upl:hover{border-color:var(--navy)}
+.stamp{font-size:12px;color:var(--sage);background:var(--sage-bg);border:1px solid var(--sage-bd);border-radius:4px;padding:5px 12px;font-family:var(--mono);animation:po .4s ease both}
+@keyframes po{0%{opacity:0;transform:scale(1.15)}100%{opacity:1;transform:scale(1)}}
+.addl{margin-top:20px;background:none;border:0;color:var(--navy);font-size:14px;cursor:pointer;font-weight:600}.addl:hover{text-decoration:underline;text-underline-offset:3px}
+.sum{position:sticky;top:24px}
+.sum h3{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim);margin:0 0 18px;font-weight:600}
+.sr{display:flex;justify-content:space-between;font-size:14px;color:var(--muted);padding:11px 0;border-bottom:1px solid var(--line)}.sr .v{font-family:var(--mono);color:var(--ink)}
+.gr{margin-top:22px;padding-top:20px;border-top:2px solid var(--ink)}
+.gr .l{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.gr .n{font-family:var(--serif);font-size:38px;font-weight:600;letter-spacing:-.01em;margin-top:6px}.gr .n.tick{animation:tk .35s}@keyframes tk{50%{color:var(--clay)}}
+.go{width:100%;margin-top:22px;border:0;border-radius:6px;padding:15px;background:var(--navy);color:#fff;font-weight:600;cursor:pointer;font-size:15px;transition:background .2s}.go:hover{background:var(--navy-2)}
+.pb{margin-top:16px;font-size:13px}.pb .e{color:var(--clay);font-weight:600;margin:0 0 6px}.pb ul{margin:0;padding-left:18px;color:var(--muted)}
+.pb .ok{color:var(--sage);background:var(--sage-bg);border:1px solid var(--sage-bd);border-radius:6px;padding:13px 15px}
+.tip{font-size:13px;color:var(--muted);margin-top:24px;font-style:italic}
+
+.scrim{position:fixed;inset:0;background:rgba(26,26,23,.4);opacity:0;pointer-events:none;transition:opacity .25s;z-index:60}.scrim.on{opacity:1;pointer-events:auto}
+.drawer{position:fixed;top:0;right:0;height:100vh;width:min(560px,94vw);background:var(--bg);border-left:1px solid var(--line);box-shadow:-20px 0 50px -30px rgba(0,0,0,.5);transform:translateX(100%);transition:transform .3s cubic-bezier(.2,.7,.2,1);z-index:70;display:flex;flex-direction:column}.drawer.on{transform:none}
+.dr-head{padding:24px 28px;border-bottom:1px solid var(--line)}
+.dr-head .x{float:right;background:none;border:0;font-size:22px;color:var(--dim);cursor:pointer;line-height:1}
+.dr-body{flex:1;overflow-y:auto;padding:24px 28px}
+.dr-foot{padding:18px 28px;border-top:1px solid var(--line);display:flex;gap:12px;background:var(--panel)}.dr-foot .btn{flex:1;padding:13px}
+.rev-line{display:grid;grid-template-columns:1fr auto;gap:6px 16px;padding:16px 0;border-bottom:1px solid var(--line)}
+.rev-line .d{font-size:14px;font-weight:600}.rev-line .meta{font-size:12px;color:var(--muted)}.rev-line .a{font-family:var(--mono);font-size:15px;text-align:right;align-self:center}
+.rev-line .rc{grid-column:1/3;display:flex;gap:8px;align-items:center;font-size:12px;color:var(--sage);margin-top:4px}
+.rev-line .rc .thumb{width:36px;height:46px;background:var(--field);border:1px solid var(--line-2);border-radius:4px;display:grid;place-items:center;font-size:16px}
+.cmt{width:100%;font:inherit;border:1px solid var(--line-2);border-radius:6px;padding:11px;margin-top:6px;resize:vertical;min-height:64px}.cmt:focus{outline:0;border-color:var(--navy)}
+.recon-note{background:var(--gold-bg);border:1px solid #e3d39a;border-radius:8px;padding:14px 16px;font-size:13px;margin-bottom:20px;color:#6f5410}.recon-note b{color:#5a440d}
+.toast{position:fixed;bottom:26px;left:50%;transform:translateX(-50%) translateY(18px);background:var(--ink);color:#fff;font-size:13px;padding:13px 20px;border-radius:6px;opacity:0;pointer-events:none;transition:.25s;z-index:90}.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+@media(max-width:1080px){.dash-row{grid-template-columns:1fr}.build{grid-template-columns:1fr;gap:28px}.sum{position:static}}
+@media(max-width:920px){.grid-stats{grid-template-columns:repeat(2,1fr)}.exports{grid-template-columns:1fr}}
+.scroll-x{overflow-x:auto}
+@media(max-width:860px){
+  .app{grid-template-columns:1fr}.sidebar{display:none}
+  .topbar{display:flex;align-items:center;gap:12px;padding:14px 18px;border-bottom:1px solid var(--line);position:sticky;top:0;background:rgba(252,252,250,.92);backdrop-filter:blur(8px);z-index:40}
+  .topbar .brand{padding:0;font-size:17px}.topbar .roleswitch{margin:0 0 0 auto}.topbar .roleswitch button{font-size:10px;padding:6px 8px}
+  .content{padding:24px 18px 96px}h1{font-size:28px}
+  .tabbar{position:fixed;bottom:0;left:0;right:0;display:flex;background:rgba(252,252,250,.96);backdrop-filter:blur(10px);border-top:1px solid var(--line);z-index:50;padding:6px 4px}
+  .tab{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 4px;color:var(--muted);cursor:pointer;font-size:10px;border:0;background:none;position:relative}
+  .tab .ti{font-size:18px}.tab.on{color:var(--navy)}
+  .tab .badge{position:absolute;top:2px;right:50%;margin-right:-22px;font-family:var(--mono);font-size:9px;background:var(--clay);color:#fff;border-radius:999px;padding:0 5px}
+  .starts{grid-template-columns:1fr}
+  .stack-cards thead{display:none}
+  .stack-cards tr{display:block;background:var(--panel);border:1px solid var(--line);border-radius:10px;margin-bottom:12px;padding:14px 16px;box-shadow:var(--shadow)}
+  .stack-cards td{display:flex;justify-content:space-between;align-items:center;border:0;padding:5px 0;gap:14px}
+  .stack-cards td::before{content:attr(data-l);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);font-weight:600}
+  .stack-cards td.r{text-align:right}
+  .line{grid-template-columns:1fr 1fr;gap:12px 14px;padding:16px;background:var(--panel);border:1px solid var(--line);border-radius:10px;margin-bottom:12px;box-shadow:var(--shadow)}
+  .lines{border-top:0}.line .rm{justify-self:end}.filters .fld{flex:1;min-width:140px}
+}
+.tabbar{display:none}@media(max-width:860px){.tabbar{display:flex}}
+</style></head><body>
+
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand"><span class="m">A</span><span><b>Aimia</b> Expenses</span></div>
+    <div class="roleswitch">
+      <button data-role="claimant" class="on" onclick="setRole('claimant')">Claimant</button>
+      <button data-role="manager" onclick="setRole('manager')">Manager</button>
+      <button data-role="finance" onclick="setRole('finance')">Finance</button>
+    </div>
+    <div class="role-hint" id="role-hint"></div>
+    <div id="nav-links"></div>
+    <div class="side-foot"><span class="av" id="foot-av">AW</span><span class="who" id="foot-who"></span></div>
+  </aside>
+  <div class="main">
+    <div class="topbar">
+      <div class="brand"><span class="m">A</span><b>Aimia</b></div>
+      <div class="roleswitch">
+        <button data-role="claimant" class="on" onclick="setRole('claimant')">Claim</button>
+        <button data-role="manager" onclick="setRole('manager')">Approve</button>
+        <button data-role="finance" onclick="setRole('finance')">Finance</button>
+      </div>
+    </div>
+    <div class="content">
+
+      <section id="dash" class="view on">
+        <p class="kicker">Overview</p><h1>Good afternoon, Jordan.</h1>
+        <p class="lede">Here's where your expenses stand this month. Two periods are open for new claims.</p>
+        <div class="grid-stats">
+          <div class="scard"><div class="n navy">£412.66</div><div class="l">Claimed this month</div><div class="sub">across 4 claims</div></div>
+          <div class="scard"><div class="n clay">£289.45</div><div class="l">Awaiting approval</div><div class="sub">1 claim with Morgan</div></div>
+          <div class="scard"><div class="n sage">£561.00</div><div class="l">Paid year to date</div><div class="sub">6 claims processed</div></div>
+          <div class="scard"><div class="n">6 Jul</div><div class="l">Next deadline</div><div class="sub">12 days away</div></div>
+        </div>
+        <div class="dash-row">
+          <div class="box"><h3>Spend by category</h3><p class="hint">This financial year</p><div class="bars" id="catbars"></div></div>
+          <div class="box"><h3>My claims by status</h3><p class="hint">All time</p><div class="donut-wrap"><svg class="donut" viewBox="0 0 42 42" id="donut"></svg><div class="legend" id="legend"></div></div></div>
+        </div>
+      </section>
+
+      <section id="claims" class="view">
+        <p class="kicker">My claims</p><h1>Claims</h1>
+        <p class="lede">Begin a new claim, or return to one below. Your work saves as you type.</p>
+        <p class="sec-label">Start a claim</p>
+        <div class="starts">
+          <div class="start" tabindex="0" role="button" onclick="openClaim('cash')" onkeydown="if(event.key==='Enter')openClaim('cash')"><div class="t">Cash expenses</div><div class="m">June 2026</div><div class="d">Submit by 6 July 2026</div><div class="arr">→</div></div>
+          <div class="start" tabindex="0" role="button" onclick="openClaim('card')" onkeydown="if(event.key==='Enter')openClaim('card')"><div class="t">Credit card · Barclaycard</div><div class="m">June 2026</div><div class="d">Submit by 6 July 2026</div><div class="arr">→</div></div>
+        </div>
+        <p class="sec-label">History</p>
+        <table class="ledger stack-cards"><thead><tr><th>Reference</th><th>Type</th><th>Period</th><th>Status</th><th class="r">Total</th></tr></thead><tbody id="claimrows"></tbody></table>
+      </section>
+
+      <section id="builder" class="view">
+        <button class="back" onclick="nav('claims')">← My claims</button>
+        <div class="chead"><div><p class="kicker" id="c-eb">Cash · June 2026</p><h1 id="c-tt">New claim</h1></div><div class="cmeta">Claimant <b>Jordan Blake</b> · Approver <b>Morgan Hale</b></div></div>
+        <div class="build">
+          <div><div class="lines" id="lines"></div><button class="addl" onclick="addLine()">+ Add a line</button></div>
+          <aside class="sum"><h3>This claim</h3>
+            <div class="sr"><span>Lines</span><span class="v" id="s-n">0</span></div>
+            <div class="sr"><span>With receipt</span><span class="v" id="s-r">0</span></div>
+            <div class="sr"><span>VAT flagged</span><span class="v" id="s-v">0</span></div>
+            <div class="gr"><div class="l">Gross total</div><div class="n" id="gross">£0.00</div></div>
+            <button class="go" onclick="submitClaim()">Submit claim</button><div class="pb" id="pb"></div>
+            <p class="tip">Upload a receipt and OCR pre-fills the details. Nothing leaves the VPN.</p>
+          </aside>
+        </div>
+      </section>
+
+      <section id="approvals" class="view">
+        <p class="kicker">Manager</p><h1>Approvals</h1>
+        <p class="lede">Claims from your team waiting on a decision. Open one to review every line and its receipt before approving.</p>
+        <div class="grid-stats" style="margin-bottom:26px">
+          <div class="scard"><div class="n clay" id="m-pending">3</div><div class="l">Awaiting your approval</div><div class="sub">from 3 team members</div></div>
+          <div class="scard"><div class="n navy" id="m-value">£531.05</div><div class="l">Total pending value</div></div>
+          <div class="scard"><div class="n sage">2</div><div class="l">Approved this week</div></div>
+          <div class="scard"><div class="n">6 Jul</div><div class="l">Period deadline</div></div>
+        </div>
+        <p class="sec-label">Pending queue</p>
+        <table class="ledger stack-cards"><thead><tr><th>Claimant</th><th>Ref</th><th>Type</th><th>Period</th><th class="c">Lines</th><th class="c">Receipts</th><th class="r">Total</th><th></th></tr></thead><tbody id="approvalrows"></tbody></table>
+        <p class="sec-label">Recently decided</p>
+        <table class="ledger stack-cards"><thead><tr><th>Claimant</th><th>Ref</th><th>Decision</th><th>When</th><th class="r">Total</th></tr></thead><tbody id="decidedrows"></tbody></table>
+      </section>
+
+      <section id="findash" class="view">
+        <p class="kicker">Finance · Morgan Hale</p><h1>Processing overview</h1>
+        <p class="lede">Every approved claim across all claimants, ready to reconcile, validate and pay. June period closes 6 July.</p>
+        <div class="grid-stats">
+          <div class="scard"><div class="n clay" id="f-toprocess">5</div><div class="l">Approved — to process</div><div class="sub">£1,204.30</div></div>
+          <div class="scard"><div class="n gold">2</div><div class="l">Reconciliation flags</div><div class="sub">card items to check</div></div>
+          <div class="scard"><div class="n navy">£182.40</div><div class="l">VAT reclaimable</div><div class="sub">this period</div></div>
+          <div class="scard"><div class="n sage">£8,940</div><div class="l">Paid year to date</div></div>
+        </div>
+        <div class="dash-row">
+          <div class="box"><h3>Spend by category — all claimants</h3><p class="hint">June 2026, per cost column</p><div class="bars" id="fcatbars"></div></div>
+          <div class="box"><h3>By claim type</h3><p class="hint">June 2026</p><div class="donut-wrap"><svg class="donut" viewBox="0 0 42 42" id="fdonut"></svg><div class="legend" id="flegend"></div></div></div>
+        </div>
+      </section>
+
+      <section id="processing" class="view">
+        <p class="kicker">Finance</p><h1>Processing queue</h1>
+        <p class="lede">Approved claims across the whole business. Validate VAT and receipts, then mark as processed for payment.</p>
+        <div class="filters">
+          <div class="fld"><label>Period</label><select id="fp-period" onchange="renderProcessing()"><option value="all">All periods</option><option value="2026-06" selected>June 2026</option><option value="2026-05">May 2026</option></select></div>
+          <div class="fld"><label>Type</label><select id="fp-type" onchange="renderProcessing()"><option value="all">Cash &amp; card</option><option value="cash">Cash</option><option value="card">Card</option></select></div>
+          <div class="fld"><label>Claimant</label><select id="fp-claimant" onchange="renderProcessing()"><option value="all">Everyone</option><option>Jordan Blake</option><option>Riley Stone</option><option>Casey Quinn</option><option>Taylor Reed</option></select></div>
+        </div>
+        <div class="toolbar" style="margin-top:18px"><span class="report-meta"><b id="pq-count">0</b> claims · <b id="pq-total">£0.00</b></span><span class="spacer"></span><button class="btn ghost sm" onclick="markAllProcessed()">Mark visible as processed</button></div>
+        <div class="scroll-x"><table class="ledger stack-cards"><thead><tr><th>Claimant</th><th>Ref</th><th>Type</th><th>Period</th><th class="c">VAT</th><th class="c">Receipts</th><th>Status</th><th class="r">Total</th><th></th></tr></thead><tbody id="processingrows"></tbody></table></div>
+      </section>
+
+      <section id="reconcile" class="view">
+        <p class="kicker">Finance</p><h1>Card reconciliation</h1>
+        <p class="lede">Barclaycard statement lines matched against what cardholders claimed. Anything unmatched or missing needs chasing before the period closes.</p>
+        <div class="recon-note">⚠ <b>2 statement lines unmatched</b> and <b>1 claim line has no matching statement entry</b>. Resolve these before processing the June card period.</div>
+        <div class="filters"><div class="fld"><label>Cardholder</label><select id="rc-holder" onchange="renderRecon()"><option value="all">All cardholders</option><option>Jordan Blake</option><option>Riley Stone</option></select></div>
+          <div class="fld"><label>Show</label><select id="rc-filter" onchange="renderRecon()"><option value="all">Everything</option><option value="unmatched">Needs attention</option></select></div></div>
+        <p class="sec-label">Statement vs claims — June 2026</p>
+        <div class="scroll-x"><table class="ledger stack-cards"><thead><tr><th>Date</th><th>Cardholder</th><th>Statement merchant</th><th class="r">Statement £</th><th>Claimed as</th><th class="r">Claimed £</th><th>Status</th></tr></thead><tbody id="reconrows"></tbody></table></div>
+      </section>
+
+      <section id="freports" class="view">
+        <p class="kicker">Finance</p><h1>Reports &amp; export</h1>
+        <p class="lede">Per-line detail with the category cost columns, VAT and net/gross — the spreadsheet that's being replaced. Exports reflect the filters below.</p>
+        <div class="filters">
+          <div class="fld"><label>Period</label><select id="fr-period" onchange="renderFinanceReport()"><option value="all">All periods</option><option value="2026-06" selected>June 2026</option><option value="2026-05">May 2026</option></select></div>
+          <div class="fld"><label>Type</label><select id="fr-type" onchange="renderFinanceReport()"><option value="all">Cash &amp; card</option><option value="cash">Cash</option><option value="card">Card</option></select></div>
+          <div class="fld"><label>Status</label><select id="fr-status" onchange="renderFinanceReport()"><option value="all">Any status</option><option value="approved">Approved</option><option value="processed">Processed</option></select></div>
+        </div>
+        <div class="exports">
+          <button class="exp csv" onclick="downloadFinanceCSV('csv')"><span class="ei">CSV</span><span><span class="et">Per-line CSV</span><br><span class="ed">Accounting system import</span></span></button>
+          <button class="exp xlsx" onclick="downloadFinanceCSV('xlsx')"><span class="ei">XLS</span><span><span class="et">Excel workbook</span><br><span class="ed">Category cost columns</span></span></button>
+          <button class="exp pdf" onclick="printFinancePDF()"><span class="ei">PDF</span><span><span class="et">Period summary</span><br><span class="ed">For sign-off &amp; filing</span></span></button>
+        </div>
+        <p class="sec-label">Line-level preview</p>
+        <p class="report-meta"><b id="frr-lines">0</b> lines · gross <b id="frr-total">£0.00</b> · VAT reclaim <b id="frr-vat">£0.00</b></p>
+        <div class="scroll-x"><table class="ledger"><thead><tr><th>Date</th><th>Claimant</th><th>Ref</th><th>Detail</th><th>Category</th><th class="r">Net £</th><th class="r">VAT £</th><th class="r">Gross £</th></tr></thead><tbody id="freportrows"></tbody></table></div>
+      </section>
+
+    </div>
+  </div>
+</div>
+
+<div class="scrim" id="scrim" onclick="closeDrawer()"></div>
+<aside class="drawer" id="drawer">
+  <div class="dr-head"><button class="x" onclick="closeDrawer()">×</button><p class="kicker" id="dr-eb">Review</p><h1 style="font-size:24px;margin:0" id="dr-title">Claim</h1><p class="cmeta" id="dr-meta" style="margin-top:6px"></p></div>
+  <div class="dr-body" id="dr-body"></div>
+  <div class="dr-foot"><button class="btn reject" onclick="decide('rejected')">Reject</button><button class="btn approve" onclick="decide('approved')">Approve claim</button></div>
+</aside>
+
+<nav class="tabbar" id="tabbar"></nav>
+<div class="toast" id="toast"></div>
+
+<script>
+const CATS=[["subsistence","Subsistence"],["travel","Travel"],["hotel","Hotel"],["foreign_travel","Foreign travel"],["postage","Postage"],["staff_entertaining","Staff entertaining"],["customer_entertaining","Customer entertaining"],["other","Other"],["personal","Personal (deduction)"]];
+const NAVS={
+  claimant:[["dash","◧","Dashboard"],["claims","▤","My claims"],["__sep","Open periods"],["__cash","◆","Cash · Jun 2026"],["__card","▣","Card · Jun 2026"]],
+  manager:[["approvals","✓","Approvals","badge3"]],
+  finance:[["findash","◧","Overview"],["processing","▤","Processing","badge5"],["reconcile","⇄","Reconciliation","badge2"],["freports","⤓","Reports & export"]]
+};
+const ROLE_META={
+  claimant:{av:"JB",who:"Jordan Blake",mail:"jordan.blake@example.com",hint:"Viewing as Jordan Blake — submits demo expense claims."},
+  manager:{av:"MH",who:"Morgan Hale",mail:"morgan.hale@example.com",hint:"Viewing as a manager — approves claims from direct reports."},
+  finance:{av:"MH",who:"Morgan Hale",mail:"finance@example.com",hint:"Viewing as Finance — processes, reconciles and pays all claims."}
+};
+let ROLE="claimant";
+
+const CLAIMS=[
+  {ref:"draft",type:"Cash",period:"2026-06",pl:"June 2026",status:"draft",total:64.20},
+  {ref:"2026050118",type:"Card",period:"2026-05",pl:"May 2026",status:"submitted",total:289.45},
+  {ref:"2026050094",type:"Cash",period:"2026-05",pl:"May 2026",status:"approved",total:58.90},
+  {ref:"2026040061",type:"Card",period:"2026-04",pl:"April 2026",status:"processed",total:503.10},
+];
+const CAT_SPEND=[["Travel",312.40],["Subsistence",188.20],["Hotel",178.00],["Customer entertaining",96.50],["Postage",24.80],["Foreign travel",14.05]];
+const STATUS=[["draft","Draft","#9a7b1e"],["submitted","Submitted","#a85a3c"],["approved","Approved","#5f7a5b"],["processed","Processed","#9c9b92"]];
+const APPROVALS=[
+  {ref:"2026060131",claimant:"Jordan Blake",type:"Cash",period:"June 2026",lines:3,receipts:3,total:153.20,items:[{d:"Taxi — Skelmersdale to Liverpool",cat:"Travel",a:22.40,rc:true},{d:"Lunch with supplier",cat:"Subsistence",a:41.80,rc:true},{d:"Premier Inn — Manchester",cat:"Hotel",a:89.00,rc:true}]},
+  {ref:"2026060129",claimant:"Riley Stone",type:"Card",period:"June 2026",lines:4,receipts:3,total:241.05,items:[{d:"Fuel — BP Burscough",cat:"Travel",a:64.10,rc:true},{d:"Client dinner — San Carlo",cat:"Customer entertaining",a:128.40,rc:true},{d:"Stationery",cat:"Other",a:18.55,rc:false},{d:"Parking",cat:"Travel",a:30.00,rc:true}]},
+  {ref:"2026060127",claimant:"Casey Quinn",type:"Cash",period:"June 2026",lines:2,receipts:2,total:136.80,items:[{d:"Train — Wigan to London",cat:"Travel",a:118.30,rc:true},{d:"Coffee — meeting",cat:"Subsistence",a:18.50,rc:true}]},
+];
+const DECIDED=[{ref:"2026060118",claimant:"Jordan Blake",decision:"approved",when:"Yesterday 16:40",total:58.90},{ref:"2026060103",claimant:"Casey Quinn",decision:"approved",when:"Mon 09:12",total:74.10}];
+const PROCESSING=[
+  {ref:"2026060118",claimant:"Jordan Blake",type:"Cash",period:"2026-06",pl:"June 2026",vat:true,receipts:"3/3",status:"approved",total:58.90},
+  {ref:"2026060129",claimant:"Riley Stone",type:"Card",period:"2026-06",pl:"June 2026",vat:true,receipts:"3/4",status:"approved",total:241.05},
+  {ref:"2026060127",claimant:"Casey Quinn",type:"Cash",period:"2026-06",pl:"June 2026",vat:false,receipts:"2/2",status:"approved",total:136.80},
+  {ref:"2026060140",claimant:"Taylor Reed",type:"Card",period:"2026-06",pl:"June 2026",vat:true,receipts:"5/5",status:"approved",total:402.55},
+  {ref:"2026060142",claimant:"Jordan Blake",type:"Card",period:"2026-06",pl:"June 2026",vat:true,receipts:"4/4",status:"approved",total:365.00},
+];
+const RECON=[
+  {date:"03/06",holder:"Jordan Blake",merchant:"Premier Inn Manchester",stmt:89.00,claimed:"Hotel",claimedAmt:89.00,status:"matched"},
+  {date:"06/06",holder:"Jordan Blake",merchant:"BP Burscough",stmt:64.10,claimed:"Travel — fuel",claimedAmt:64.10,status:"matched"},
+  {date:"09/06",holder:"Riley Stone",merchant:"San Carlo Manchester",stmt:128.40,claimed:"Customer entertaining",claimedAmt:128.40,status:"matched"},
+  {date:"11/06",holder:"Riley Stone",merchant:"Amazon UK",stmt:43.20,claimed:"—",claimedAmt:0,status:"unmatched"},
+  {date:"14/06",holder:"Jordan Blake",merchant:"Trainline",stmt:118.30,claimed:"—",claimedAmt:0,status:"unmatched"},
+  {date:"15/06",holder:"Riley Stone",merchant:"(no statement line)",stmt:0,claimed:"Stationery",claimedAmt:18.55,status:"missing"},
+];
+const FLINES=[
+  {date:"2026-06-03",claimant:"Jordan Blake",ref:"2026060118",detail:"Taxi — Skelmersdale to Liverpool",cat:"Travel",net:18.67,vat:3.73,period:"2026-06",type:"cash",status:"approved"},
+  {date:"2026-06-05",claimant:"Jordan Blake",ref:"2026060118",detail:"Lunch with supplier",cat:"Subsistence",net:34.83,vat:6.97,period:"2026-06",type:"cash",status:"approved"},
+  {date:"2026-06-09",claimant:"Riley Stone",ref:"2026060129",detail:"Client dinner — San Carlo",cat:"Customer entertaining",net:107.00,vat:21.40,period:"2026-06",type:"card",status:"approved"},
+  {date:"2026-06-06",claimant:"Riley Stone",ref:"2026060129",detail:"Fuel — BP Burscough",cat:"Travel",net:53.42,vat:10.68,period:"2026-06",type:"card",status:"approved"},
+  {date:"2026-06-12",claimant:"Taylor Reed",ref:"2026060140",detail:"Hotel — London",cat:"Hotel",net:215.00,vat:43.00,period:"2026-06",type:"card",status:"approved"},
+  {date:"2026-06-14",claimant:"Jordan Blake",ref:"2026060142",detail:"Train — Wigan to London",cat:"Travel",net:98.58,vat:19.72,period:"2026-06",type:"card",status:"approved"},
+];
+
+function setRole(r){
+  ROLE=r;document.querySelectorAll(".roleswitch button").forEach(b=>b.classList.toggle("on",b.dataset.role===r));
+  const m=ROLE_META[r];document.getElementById("role-hint").textContent=m.hint;
+  document.getElementById("foot-av").textContent=m.av;document.getElementById("foot-who").innerHTML=`${m.who}<br><small>${m.mail}</small>`;
+  document.getElementById("nav-links").innerHTML=NAVS[r].map(n=>{
+    if(n[0]==="__sep")return `<div class="nav-sep">${n[1]}</div>`;
+    if(n[0]==="__cash")return `<div class="nav-item" onclick="openClaim('cash')"><span class="i">${n[1]}</span>${n[2]}</div>`;
+    if(n[0]==="__card")return `<div class="nav-item" onclick="openClaim('card')"><span class="i">${n[1]}</span>${n[2]}</div>`;
+    const b=n[3]?`<span class="badge">${n[3].replace('badge','')}</span>`:'';
+    return `<div class="nav-item" data-nav="${n[0]}" onclick="nav('${n[0]}')"><span class="i">${n[1]}</span>${n[2]}${b}</div>`;}).join("");
+  document.getElementById("tabbar").innerHTML=NAVS[r].filter(n=>!n[0].startsWith("__")).map(n=>{
+    const b=n[3]?`<span class="badge">${n[3].replace('badge','')}</span>`:'';
+    return `<button class="tab" data-nav="${n[0]}" onclick="nav('${n[0]}')"><span class="ti">${n[1]}</span>${n[2]}${b}</button>`;}).join("");
+  nav(NAVS[r].find(n=>!n[0].startsWith("__"))[0]);
+}
+function nav(v){document.querySelectorAll(".view").forEach(x=>x.classList.remove("on"));const el=document.getElementById(v);if(el)el.classList.add("on");document.querySelectorAll("[data-nav]").forEach(n=>n.classList.toggle("on",n.dataset.nav===v));window.scrollTo(0,0);}
+
+function renderDash(){
+  const max=Math.max(...CAT_SPEND.map(c=>c[1]));
+  const bars=CAT_SPEND.map(([c,v])=>`<div class="bar"><span class="cap">${c}</span><span class="track"><span class="fill" data-w="${(v/max*100).toFixed(1)}"></span></span><span class="val">£${v.toFixed(2)}</span></div>`).join("");
+  document.getElementById("catbars").innerHTML=bars;document.getElementById("fcatbars").innerHTML=bars;
+  requestAnimationFrame(()=>document.querySelectorAll(".fill").forEach(f=>f.style.width=f.dataset.w+"%"));
+  donut("donut","legend",STATUS.map(([k,l,c])=>[l,c,CLAIMS.filter(x=>x.status===k).length]));
+  donut("fdonut","flegend",[["Cash","#5f7a5b",2],["Card","#1f3a5f",3]]);
+}
+function donut(svgId,legId,counts){const tot=counts.reduce((a,c)=>a+c[2],0)||1;let off=0;
+  const seg=counts.filter(c=>c[2]>0).map(([l,col,n])=>{const len=n/tot*100;const s=`<circle cx="21" cy="21" r="15.915" fill="transparent" stroke="${col}" stroke-width="6" stroke-dasharray="${len} ${100-len}" stroke-dashoffset="${25-off}"></circle>`;off+=len;return s;}).join("");
+  document.getElementById(svgId).innerHTML=`<circle cx="21" cy="21" r="15.915" fill="transparent" stroke="#f0eee6" stroke-width="6"></circle>${seg}`;
+  document.getElementById(legId).innerHTML=counts.map(([l,col,n])=>`<div class="li"><span class="sw" style="background:${col}"></span>${l}<b>${n}</b></div>`).join("");}
+function renderClaims(){document.getElementById("claimrows").innerHTML=CLAIMS.map(c=>{const r=c.ref==='draft'?`<span class="ref dr">Draft</span>`:`<span class="ref">${c.ref}</span>`;return `<tr class="clickable" onclick="openClaim('demo')"><td data-l="Reference">${r}</td><td data-l="Type">${c.type}</td><td data-l="Period">${c.pl}</td><td data-l="Status"><span class="pill ${c.status}">${c.status}</span></td><td class="amt r" data-l="Total">£${c.total.toFixed(2)}</td></tr>`;}).join("");}
+
+const SEED=[{date:"2026-06-03",det:"Taxi — Skelmersdale to Liverpool",cat:"travel",amount:"22.40",vat:true,ocr:"OCR ✓ 03/06 · £22.40"},{date:"2026-06-05",det:"Lunch with supplier",cat:"subsistence",amount:"41.80",vat:false,ocr:"OCR ✓ Greggs · £41.80"}];
+let id=0;
+function lh(d={}){const i=++id;const o=CATS.map(([v,l])=>`<option value="${v}" ${d.cat===v?'selected':''}>${l}</option>`).join("");const clip=d.ocr?`<span class="stamp">${d.ocr}</span>`:`<button class="upl" onclick="ocr(this)">Add receipt</button>`;return `<div class="line" data-id="${i}"><input type="date" name="date" value="${d.date||''}" onchange="rc()"><input type="text" name="detail" placeholder="What was it for?" value="${d.det||''}"><select name="category">${o}</select><input type="number" step="0.01" name="amount" placeholder="0.00" value="${d.amount||''}" oninput="rc()"><button class="rm" onclick="rm(this)">×</button><div class="meta"><label class="chk"><input type="checkbox" name="vat" ${d.vat?'checked':''} onchange="rc()">Reclaim VAT</label>${clip}</div></div>`;}
+function addLine(d){document.getElementById("lines").insertAdjacentHTML("beforeend",lh(d));rc();}
+function rm(b){b.closest(".line").remove();rc();}
+function ocr(b){const l=b.closest(".line");b.textContent="reading…";b.disabled=true;setTimeout(()=>{if(!l.querySelector("[name=date]").value)l.querySelector("[name=date]").value="2026-06-12";if(!l.querySelector("[name=detail]").value)l.querySelector("[name=detail]").value="Premier Inn — Manchester";l.querySelector("[name=amount]").value="89.00";b.outerHTML='<span class="stamp">OCR ✓ Premier Inn · £89.00</span>';rc();toast("Pre-filled from receipt — please check");},650);}
+function rc(){const L=[...document.querySelectorAll(".line")];let tot=0,r=0,v=0;L.forEach(l=>{tot+=parseFloat(l.querySelector("[name=amount]").value||0)||0;if(l.querySelector(".stamp"))r++;if(l.querySelector("[name=vat]").checked)v++;});set("s-n",L.length);set("s-r",r);set("s-v",v);const g=document.getElementById("gross");g.textContent="£"+tot.toFixed(2);g.classList.remove("tick");void g.offsetWidth;g.classList.add("tick");document.getElementById("pb").innerHTML="";}
+function set(i,v){document.getElementById(i).textContent=v;}
+function openClaim(w){const ln=document.getElementById("lines");ln.innerHTML="";id=0;const eb=document.getElementById("c-eb"),tt=document.getElementById("c-tt");if(w==='demo'){eb.textContent="Cash · June 2026";tt.textContent="Claim (draft)";SEED.forEach(addLine);addLine();}else{eb.textContent=(w==='card'?"Credit card · Barclaycard":"Cash")+" · June 2026";tt.textContent="New claim";addLine();}rc();nav('builder');}
+function submitClaim(){const L=[...document.querySelectorAll(".line")];const p=[];if(!L.length)p.push("Add at least one line.");L.forEach((l,i)=>{const a=parseFloat(l.querySelector("[name=amount]").value||0)||0;if(a>0&&!l.querySelector(".stamp"))p.push(`Line ${i+1}: add a receipt or reference.`);});const b=document.getElementById("pb");if(p.length){b.innerHTML=`<p class="e">Fix before submitting</p><ul>${p.map(x=>`<li>${x}</li>`).join("")}</ul>`;return;}const ref=`2026060${String(120+Math.floor(Math.random()*80)).padStart(4,'0').slice(-4)}`;b.innerHTML=`<div class="ok">✓ Submitted — reference ${ref}. Sent to Morgan Hale for approval.</div>`;toast("Submitted · "+ref);}
+
+function renderApprovals(){
+  document.getElementById("approvalrows").innerHTML=APPROVALS.length?APPROVALS.map((a,i)=>{const rc=a.receipts<a.lines?`<span class="pill submitted">${a.receipts}/${a.lines}</span>`:`<span class="small">${a.receipts}/${a.lines}</span>`;return `<tr class="clickable" onclick="openReview(${i})"><td data-l="Claimant"><b>${a.claimant}</b></td><td data-l="Ref"><span class="ref">${a.ref}</span></td><td data-l="Type">${a.type}</td><td data-l="Period">${a.period}</td><td class="c" data-l="Lines">${a.lines}</td><td class="c" data-l="Receipts">${rc}</td><td class="amt r" data-l="Total">£${a.total.toFixed(2)}</td><td class="r"><button class="btn primary sm" onclick="event.stopPropagation();openReview(${i})">Review</button></td></tr>`;}).join(""):`<tr><td colspan="8" style="text-align:center;color:var(--dim);padding:30px">Queue clear — nothing waiting on you.</td></tr>`;
+  document.getElementById("decidedrows").innerHTML=DECIDED.map(d=>`<tr><td data-l="Claimant">${d.claimant}</td><td data-l="Ref"><span class="ref">${d.ref}</span></td><td data-l="Decision"><span class="pill ${d.decision}">${d.decision}</span></td><td data-l="When" class="small">${d.when}</td><td class="amt r" data-l="Total">£${d.total.toFixed(2)}</td></tr>`).join("");
+}
+let reviewIdx=null;
+function openReview(i){reviewIdx=i;const a=APPROVALS[i];
+  document.getElementById("dr-eb").textContent="Approval · "+a.period;document.getElementById("dr-title").textContent=a.claimant;
+  document.getElementById("dr-meta").innerHTML=`${a.type} claim <span class="ref">${a.ref}</span> · ${a.lines} lines · <b style="color:var(--ink);font-family:var(--mono)">£${a.total.toFixed(2)}</b>`;
+  document.getElementById("dr-body").innerHTML=a.items.map(it=>`<div class="rev-line"><div><div class="d">${it.d}</div><div class="meta">${it.cat}</div></div><div class="a">£${it.a.toFixed(2)}</div><div class="rc">${it.rc?`<span class="thumb">🧾</span> Receipt attached · OCR confirmed`:`<span class="thumb" style="color:var(--clay)">!</span> <span style="color:var(--clay)">No receipt attached</span>`}</div></div>`).join("")+`<label style="display:block;margin-top:18px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);font-weight:600">Comment (sent to claimant)</label><textarea class="cmt" id="dr-comment" placeholder="Optional — required if rejecting"></textarea>`;
+  document.getElementById("scrim").classList.add("on");document.getElementById("drawer").classList.add("on");}
+function closeDrawer(){document.getElementById("scrim").classList.remove("on");document.getElementById("drawer").classList.remove("on");}
+function decide(d){const a=APPROVALS[reviewIdx];const c=document.getElementById("dr-comment").value.trim();if(d==='rejected'&&!c){toast("Add a comment so the claimant knows what to fix");return;}APPROVALS.splice(reviewIdx,1);DECIDED.unshift({ref:a.ref,claimant:a.claimant,decision:d,when:"Just now",total:a.total});document.getElementById("m-pending").textContent=APPROVALS.length;document.getElementById("m-value").textContent="£"+APPROVALS.reduce((s,x)=>s+x.total,0).toFixed(2);renderApprovals();closeDrawer();toast(`${a.ref} ${d} → ${a.claimant}`);}
+
+function fProc(){const p=document.getElementById("fp-period").value,t=document.getElementById("fp-type").value,c=document.getElementById("fp-claimant").value;return PROCESSING.filter(x=>x.status==='approved').filter(x=>p==='all'||x.period===p).filter(x=>t==='all'||x.type.toLowerCase()===t).filter(x=>c==='all'||x.claimant===c);}
+function renderProcessing(){const rows=fProc();const tot=rows.reduce((a,c)=>a+c.total,0);document.getElementById("pq-count").textContent=rows.length;document.getElementById("pq-total").textContent="£"+tot.toFixed(2);document.getElementById("processingrows").innerHTML=rows.length?rows.map(r=>{const recOk=r.receipts.split('/')[0]===r.receipts.split('/')[1];return `<tr><td data-l="Claimant"><b>${r.claimant}</b></td><td data-l="Ref"><span class="ref">${r.ref}</span></td><td data-l="Type">${r.type}</td><td data-l="Period">${r.pl}</td><td class="c" data-l="VAT">${r.vat?'<span class="flag-vat">VAT</span>':'—'}</td><td class="c" data-l="Receipts"><span class="small" style="color:${recOk?'var(--sage)':'var(--clay)'}">${r.receipts}</span></td><td data-l="Status"><span class="pill ${r.status}">${r.status}</span></td><td class="amt r" data-l="Total">£${r.total.toFixed(2)}</td><td class="r"><button class="btn ghost sm" onclick="markProcessed('${r.ref}')">Mark processed</button></td></tr>`;}).join(""):`<tr><td colspan="9" style="text-align:center;color:var(--dim);padding:30px">Nothing to process for these filters.</td></tr>`;}
+function markProcessed(ref){const i=PROCESSING.findIndex(x=>x.ref===ref);if(i>=0)PROCESSING[i].status='processed';renderProcessing();document.getElementById("f-toprocess").textContent=PROCESSING.filter(x=>x.status==='approved').length;toast(ref+" marked processed");}
+function markAllProcessed(){fProc().forEach(r=>{const i=PROCESSING.findIndex(x=>x.ref===r.ref);if(i>=0)PROCESSING[i].status='processed';});renderProcessing();document.getElementById("f-toprocess").textContent=PROCESSING.filter(x=>x.status==='approved').length;toast("Visible claims marked processed");}
+
+function renderRecon(){const h=document.getElementById("rc-holder").value,f=document.getElementById("rc-filter").value;const rows=RECON.filter(r=>h==='all'||r.holder===h).filter(r=>f==='all'||r.status!=='matched');document.getElementById("reconrows").innerHTML=rows.map(r=>`<tr><td data-l="Date" class="small">${r.date}</td><td data-l="Cardholder">${r.holder}</td><td data-l="Merchant">${r.merchant}</td><td class="amt r" data-l="Statement">${r.stmt?'£'+r.stmt.toFixed(2):'—'}</td><td data-l="Claimed as" class="small">${r.claimed}</td><td class="amt r" data-l="Claimed">${r.claimedAmt?'£'+r.claimedAmt.toFixed(2):'—'}</td><td data-l="Status"><span class="pill ${r.status}">${r.status}</span></td></tr>`).join("");}
+
+function fFilt(){const p=document.getElementById("fr-period").value,t=document.getElementById("fr-type").value,s=document.getElementById("fr-status").value;return FLINES.filter(l=>p==='all'||l.period===p).filter(l=>t==='all'||l.type===t).filter(l=>s==='all'||l.status===s);}
+function renderFinanceReport(){const rows=fFilt();const net=rows.reduce((a,l)=>a+l.net,0),vat=rows.reduce((a,l)=>a+l.vat,0);document.getElementById("frr-lines").textContent=rows.length;document.getElementById("frr-total").textContent="£"+(net+vat).toFixed(2);document.getElementById("frr-vat").textContent="£"+vat.toFixed(2);document.getElementById("freportrows").innerHTML=rows.map(l=>`<tr><td class="small">${l.date}</td><td>${l.claimant}</td><td><span class="ref">${l.ref}</span></td><td>${l.detail}</td><td class="small">${l.cat}</td><td class="amt r">£${l.net.toFixed(2)}</td><td class="amt r">£${l.vat.toFixed(2)}</td><td class="amt r">£${(l.net+l.vat).toFixed(2)}</td></tr>`).join("");}
+function downloadFinanceCSV(kind){const rows=fFilt();if(!rows.length){toast("No lines match these filters");return;}const cols=CATS.filter(c=>c[0]!=='personal').map(c=>c[1]);const head=["Date","Claimant","Reference","Type","Detail",...cols,"Net","VAT","Gross","Status"];const body=rows.map(l=>{const catCells=cols.map(c=>c===l.cat?l.net.toFixed(2):"");return [l.date,l.claimant,l.ref,l.type,l.detail,...catCells,l.net.toFixed(2),l.vat.toFixed(2),(l.net+l.vat).toFixed(2),l.status];});const csv=[head,...body].map(r=>r.map(f=>`"${String(f).replace(/"/g,'""')}"`).join(",")).join("\r\n");const ext=kind==='xlsx'?'xls':'csv';const blob=new Blob([csv],{type:kind==='xlsx'?'application/vnd.ms-excel':'text/csv'});const url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download=`aimia-finance-lines-${Date.now()}.${ext}`;a.click();URL.revokeObjectURL(url);toast(`Exported ${rows.length} lines · ${ext.toUpperCase()}`);}
+function printFinancePDF(){const rows=fFilt();if(!rows.length){toast("No lines match");return;}const net=rows.reduce((a,l)=>a+l.net,0),vat=rows.reduce((a,l)=>a+l.vat,0);const w=window.open("","_blank");w.document.write(`<title>Aimia Finance report</title><style>body{font-family:Georgia,serif;padding:40px;color:#1a1a17}h1{font-size:24px}table{width:100%;border-collapse:collapse;margin-top:20px;font-family:ui-sans-serif,sans-serif;font-size:12px}th{text-align:left;border-bottom:2px solid #1a1a17;padding:7px;text-transform:uppercase;font-size:10px;letter-spacing:.08em}td{padding:8px 7px;border-bottom:1px solid #e7e5dd}.r{text-align:right;font-family:monospace}.tot{margin-top:18px;font-size:16px;font-weight:bold;text-align:right}</style><h1>Aimia Foods — Finance line report</h1><p>Generated ${new Date().toLocaleDateString('en-GB')} · ${rows.length} lines</p><table><thead><tr><th>Date</th><th>Claimant</th><th>Ref</th><th>Detail</th><th>Category</th><th class="r">Net</th><th class="r">VAT</th><th class="r">Gross</th></tr></thead><tbody>${rows.map(l=>`<tr><td>${l.date}</td><td>${l.claimant}</td><td>${l.ref}</td><td>${l.detail}</td><td>${l.cat}</td><td class="r">£${l.net.toFixed(2)}</td><td class="r">£${l.vat.toFixed(2)}</td><td class="r">£${(l.net+l.vat).toFixed(2)}</td></tr>`).join("")}</tbody></table><p class="tot">Net £${net.toFixed(2)} · VAT £${vat.toFixed(2)} · Gross £${(net+vat).toFixed(2)}</p>`);w.document.close();setTimeout(()=>w.print(),300);toast("Opening printable report");}
+
+let tT;function toast(m){const e=document.getElementById("toast");e.textContent=m;e.classList.add("show");clearTimeout(tT);tT=setTimeout(()=>e.classList.remove("show"),2600);}
+
+renderDash();renderClaims();renderApprovals();renderProcessing();renderRecon();renderFinanceReport();setRole('claimant');
+</script>
+</body></html>

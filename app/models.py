@@ -19,6 +19,10 @@ class Base(DeclarativeBase):
     pass
 
 
+def utc_now() -> dt.datetime:
+    return dt.datetime.now(dt.UTC)
+
+
 class ClaimType(str, enum.Enum):
     cash = "cash"
     card = "card"
@@ -114,6 +118,8 @@ class ClaimLine(Base):
     claim: Mapped["Claim"] = relationship(back_populates="lines")
     receipt: Mapped["Receipt"] = relationship(
         back_populates="line", uselist=False, cascade="all, delete-orphan")
+    statement_line: Mapped["StatementLine | None"] = relationship(
+        back_populates="claim_line", uselist=False)
 
 
 class Receipt(Base):
@@ -133,7 +139,23 @@ class AuditLog(Base):
     """Replaces the hidden-tab / password-protection 'security' with a real trail."""
     __tablename__ = "audit_log"
     id: Mapped[int] = mapped_column(primary_key=True)
-    at: Mapped[dt.datetime] = mapped_column(DateTime, default=dt.datetime.utcnow)
+    at: Mapped[dt.datetime] = mapped_column(DateTime, default=utc_now)
     user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     action: Mapped[str] = mapped_column(String(200))
     detail: Mapped[str] = mapped_column(Text, default="")
+
+
+class StatementLine(Base):
+    __tablename__ = "statement_lines"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    year: Mapped[int] = mapped_column(Integer)
+    month: Mapped[int] = mapped_column(Integer)
+    posted_date: Mapped[dt.date | None] = mapped_column(Date, nullable=True)
+    cardholder_name: Mapped[str] = mapped_column(String(200), default="")
+    merchant: Mapped[str] = mapped_column(String(200), default="")
+    amount: Mapped[float] = mapped_column(Float, default=0.0)
+    currency: Mapped[str] = mapped_column(String(8), default="GBP")
+    claim_line_id: Mapped[int | None] = mapped_column(ForeignKey("claim_lines.id"), nullable=True)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=utc_now)
+
+    claim_line: Mapped["ClaimLine | None"] = relationship(back_populates="statement_line")
