@@ -68,15 +68,40 @@ def claim_audit_events(db: Session, claim: Claim) -> list[dict]:
                 rows.append(row)
 
     rows.sort(key=lambda r: (r.at, r.id), reverse=True)
+    action_labels = {
+        "claim.create": "Claim created",
+        "claim.submit": "Submitted",
+        "claim.approve": "Approved",
+        "claim.reject": "Rejected",
+        "claim.process": "Processed",
+        "claim_line.update": "Line updated",
+        "receipt.upload": "Receipt uploaded",
+        "reconciliation.match": "Statement matched",
+    }
+
     events = []
     for r in rows:
         actor = db.get(User, r.user_id) if r.user_id else None
+        detail_items: list[dict] = []
+        detail_raw = (r.detail or "").strip()
+        if detail_raw:
+            for token in detail_raw.split(";"):
+                if "=" not in token:
+                    continue
+                key, value = token.split("=", 1)
+                key = key.strip()
+                value = value.strip()
+                if not key or not value:
+                    continue
+                detail_items.append({"key": key, "value": value})
         events.append(
             {
                 "id": r.id,
                 "at": r.at.isoformat() if r.at else "",
                 "action": r.action,
+                "action_label": action_labels.get(r.action, r.action.replace(".", " ").title()),
                 "detail": r.detail or "",
+                "detail_items": detail_items,
                 "actor_name": actor.name if actor else "System",
                 "actor_id": r.user_id,
             }
@@ -730,6 +755,10 @@ def manager_claim_decision(
     if claim.status != ClaimStatus.submitted:
         raise HTTPException(400, "Only submitted claims can be decided")
 
+    trimmed_comment = comment.strip()
+    if normalized == "rejected" and not trimmed_comment:
+        raise HTTPException(400, "Rejection comment is required")
+
     if normalized == "approved":
         claim.status = ClaimStatus.approved
         claim.approved_by = reviewer.id
@@ -742,9 +771,9 @@ def manager_claim_decision(
         action = "claim.reject"
 
     db.commit()
-    detail = f"claim_id={claim.id};decision={normalized};comment={comment.strip()[:120]}"
+    detail = f"claim_id={claim.id};decision={normalized};comment={trimmed_comment[:120]}"
     log(db, reviewer.id, action, detail)
-    return {"ok": True, "claim_id": claim.id, "status": claim.status.value}
+    return {"ok": True, "claim_id": claim.id, "status": claim.status.value, "comment": trimmed_comment}
 
 
 @app.get("/finance/claims/approved")

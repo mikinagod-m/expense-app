@@ -21,7 +21,7 @@ This board moves the app from Phase 1 capture/validation into a complete manager
 | P2-08 | P1 | Replace `datetime.utcnow()` with timezone-aware UTC usage | Backend Engineer | Done | - |
 | P2-09 | P1 | Extend automated tests for manager/finance positive-role paths | QA Engineer + Backend Engineer | Done | P2-05 |
 | P2-10 | P1 | Add CI job to run smoke tests on every push/PR | DevOps/Backend Engineer | Done | P2-09 |
-| P2-11 | P2 | Add approval/rejection comment UX and timeline view polish | Frontend Engineer | Todo | P2-03 |
+| P2-11 | P2 | Add approval/rejection comment UX and timeline view polish | Frontend Engineer | Done | P2-03 |
 | P2-12 | P2 | Add deployment checklist and UAT script pack for pilot rollout | Product Lead + QA Engineer | Done | P2-10 |
 
 ## Task Details and Acceptance Criteria

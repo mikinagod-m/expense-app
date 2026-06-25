@@ -30,21 +30,26 @@
 
 <h2>History</h2>
 {% if events %}
-<table>
-  <thead>
-    <tr><th>When</th><th>Actor</th><th>Action</th><th>Detail</th></tr>
-  </thead>
-  <tbody>
-    {% for e in events %}
-    <tr>
-      <td>{{ e.at }}</td>
-      <td>{{ e.actor_name }}</td>
-      <td>{{ e.action }}</td>
-      <td>{{ e.detail }}</td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
+<div class="history-timeline">
+  {% for e in events %}
+  <article class="history-item">
+    <div class="history-head">
+      <span class="history-action">{{ e.action_label }}</span>
+      <span class="history-when">{{ e.at }}</span>
+    </div>
+    <div class="history-meta">By {{ e.actor_name }}</div>
+    {% if e.detail_items %}
+    <div class="history-tags">
+      {% for item in e.detail_items %}
+      <span class="history-tag"><strong>{{ item.key }}</strong>: {{ item.value }}</span>
+      {% endfor %}
+    </div>
+    {% elif e.detail %}
+    <div class="history-meta">{{ e.detail }}</div>
+    {% endif %}
+  </article>
+  {% endfor %}
+</div>
 {% else %}
 <p class="hint">No audit events yet for this claim.</p>
 {% endif %}

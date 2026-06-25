@@ -165,6 +165,11 @@ Last updated: 2026-06-24
   - Workflow runs smoke tests on every push and pull request.
   - Uses supported Python `3.13`, installs dependencies from `requirements.txt`, and executes unittest smoke suite.
   - README updated with CI gate reference and command parity.
+- [x] Phase 2 `P2-11` completed: approval/rejection comments and timeline polish.
+  - Added in-row comment input in manager approvals queue for both approve/reject actions.
+  - Enforced rejection comment requirement in backend decision endpoint with clear `400` detail.
+  - Polished claim history rendering with human-readable action labels and structured detail tags.
+  - Added smoke coverage for rejection comment validation (`test_manager_reject_requires_comment`).
 - [x] Phase 2 `P2-12` completed: deployment checklist + UAT script pack.
   - Added pilot-ready deployment checklist: `DEPLOYMENT_CHECKLIST.md`.
   - Added role-based UAT execution scripts and defect log template: `UAT_SCRIPT_PACK.md`.

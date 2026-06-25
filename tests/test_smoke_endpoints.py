@@ -317,6 +317,46 @@ class SmokeEndpointTests(unittest.TestCase):
         self.assertEqual(decision.status_code, 200)
         self.assertEqual(decision.json()["status"], "approved")
 
+    def test_manager_reject_requires_comment(self):
+        with SessionLocal() as db:
+            reviewer = db.scalar(select(User).order_by(User.id))
+            reviewer.is_finance = True
+
+            period = db.scalar(select(Period).where(Period.is_open == True).order_by(Period.id))  # noqa: E712
+            claim = Claim(
+                user_id=reviewer.id,
+                period_id=period.id,
+                type=period.type,
+                status=ClaimStatus.submitted,
+            )
+            db.add(claim)
+            db.flush()
+            db.add(
+                ClaimLine(
+                    claim_id=claim.id,
+                    date=dt.date.today(),
+                    narrative="Reject comment test",
+                    category=Category.travel,
+                    amount=14.25,
+                )
+            )
+            db.commit()
+            claim_id = claim.id
+
+        missing_comment = self.client.post(
+            f"/manager/claims/{claim_id}/decision",
+            data={"decision": "rejected", "comment": ""},
+        )
+        self.assertEqual(missing_comment.status_code, 400)
+        self.assertIn("Rejection comment is required", missing_comment.json().get("detail", ""))
+
+        with_comment = self.client.post(
+            f"/manager/claims/{claim_id}/decision",
+            data={"decision": "rejected", "comment": "Policy mismatch"},
+        )
+        self.assertEqual(with_comment.status_code, 200)
+        self.assertEqual(with_comment.json()["status"], "rejected")
+
     def test_finance_processing_ui_and_action(self):
         with SessionLocal() as db:
             finance_user = db.scalar(select(User).order_by(User.id))
