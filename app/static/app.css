@@ -38,6 +38,13 @@ button.danger:hover { background: #a83838; }
   resize: vertical;
 }
 
+.comment-counter {
+  margin-top: 4px;
+  font-size: 11px;
+  color: #5d6c84;
+  text-align: right;
+}
+
 .history-timeline {
   display: grid;
   gap: 10px;

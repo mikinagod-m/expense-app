@@ -35,7 +35,7 @@
   <article class="history-item">
     <div class="history-head">
       <span class="history-action">{{ e.action_label }}</span>
-      <span class="history-when">{{ e.at }}</span>
+      <time class="history-when" data-iso="{{ e.at }}">{{ e.at }}</time>
     </div>
     <div class="history-meta">By {{ e.actor_name }}</div>
     {% if e.detail_items %}
@@ -209,6 +209,17 @@ document.body.addEventListener("htmx:afterSwap", (event) => {
   }
 });
 
+function formatHistoryTimes() {
+  document.querySelectorAll(".history-when[data-iso]").forEach((node) => {
+    const iso = node.getAttribute("data-iso");
+    if (!iso) return;
+    const parsed = new Date(iso);
+    if (Number.isNaN(parsed.getTime())) return;
+    node.textContent = parsed.toLocaleString();
+  });
+}
+
 initLineRows(false);
+formatHistoryTimes();
 </script>
 {% endblock %}

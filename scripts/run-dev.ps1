@@ -18,7 +18,7 @@ if ($Lan) {
         Where-Object { $_.IPAddress -notlike "127.*" -and $_.IPAddress -notlike "169.254*" } |
         Select-Object -First 1 -ExpandProperty IPAddress
     if ($lanIp) {
-        Write-Host "LAN access (same network): http://$lanIp:$Port"
+        Write-Host "LAN access (same network): http://${lanIp}:$Port"
     }
 }
 

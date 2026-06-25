@@ -33,6 +33,21 @@ function setMessage(text, type = "") {
   messageBox.className = `hint ${type}`.trim();
 }
 
+function bindCommentCounters() {
+  const rows = rowsNode.querySelectorAll("tr[data-claim-id]");
+  rows.forEach((row) => {
+    const input = row.querySelector(".decision-comment");
+    const counter = row.querySelector(".comment-counter");
+    if (!input || !counter || input.dataset.counterBound === "1") return;
+    const refresh = () => {
+      counter.textContent = `${input.value.length}/120`;
+    };
+    input.addEventListener("input", refresh);
+    input.dataset.counterBound = "1";
+    refresh();
+  });
+}
+
 function currency(v) {
   const n = Number(v || 0);
   return `£${n.toFixed(2)}`;
@@ -48,7 +63,8 @@ function rowHtml(c) {
       <td>${c.period_label || c.period_id}</td>
       <td>${currency(c.gross_total)}</td>
       <td>
-        <textarea class="decision-comment" placeholder="Reason (required for rejection, optional for approval)"></textarea>
+        <textarea class="decision-comment" maxlength="120" placeholder="Reason (required for rejection, optional for approval)"></textarea>
+        <div class="comment-counter">0/120</div>
       </td>
       <td>
         <button onclick="decide(${c.id}, 'approved')">Approve</button>
@@ -79,10 +95,11 @@ async function loadPending() {
       return;
     }
     rowsNode.innerHTML = d.claims.map(rowHtml).join("");
+    bindCommentCounters();
     setMessage(`Loaded ${d.claims.length} pending claim(s).`, "ok");
   } catch (e) {
     setMessage("Network error while loading approvals.", "err");
-    rowsNode.innerHTML = "<tr><td colspan='7'>Network error.</td></tr>";
+    rowsNode.innerHTML = "<tr><td colspan='8'>Network error.</td></tr>";
   }
 }
 
