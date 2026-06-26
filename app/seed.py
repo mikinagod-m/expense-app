@@ -20,7 +20,7 @@ def run():
             db.flush()
             db.add_all([
                 User(name="Jordan Blake", email="jordan.blake@example.com",
-                     manager_id=mgr.id, has_credit_card=True),
+                     manager_id=mgr.id, has_credit_card=True, is_sales_team=True),
                 User(name="Riley Stone", email="riley.stone@example.com",
                      manager_id=mgr.id, has_credit_card=True),
             ])

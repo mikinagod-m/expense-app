@@ -9,8 +9,28 @@ Last updated: 2026-06-26
 - Phase 1 P0 is complete: `P0-01` through `P0-06` are done and verified.
 - Phase 2 board is complete: `P2-01` through `P2-12` are done and verified.
 - Phase 3 board is nearly complete: all P0/P1/P2 items done except `P3-04` (Azure AD production auth).
-- Smoke suite: **21 tests**, passing locally and in CI.
+- **Phase 2.5 (JJ feedback batch) backend complete:** finance line re-coding, days-working-from-home (Sales/Payroll), and category GL codes — built, UI-wired, and tested.
+- Smoke suite: **29 tests** (21 smoke + 8 Phase 2.5), passing locally.
 - Pilot-ready on `DEV_LOGIN=1`; production login still requires `P3-04`.
+
+## Phase 2.5 — JJ feedback batch (2026-06-26)
+
+Built in response to JJ's feedback on the Toni Walker April 2026 form:
+
+- [x] **Item 1 — Finance re-codes submitted lines.** `POST /lines/{line_id}/amend`
+  (finance-only; coding/description only; amount & date immutable; blocked once
+  processed). Audited as `claim_line.amend` with from/to. Does not change gross total.
+- [x] **Item 2 — Days working from home (Sales only, via Payroll).** `User.is_sales_team`
+  flag; `Claim.wfh_days`/`wfh_rate` (rate snapshotted from `WFH_RATE_PER_DAY` setting,
+  default £1.35); `POST /claims/{claim_id}/wfh`. **Excluded from `gross_total` and
+  authorised-to-pay** (asserted by test). WFH section shows on the claim page for
+  Sales users only; admin "Sales" toggle added.
+- [x] **Item 6a — Category GL/nominal codes.** `CategoryCode` table; finance admin
+  screen at `/admin/users` ("Category coding"); endpoints `/admin/category-codes[/data]`;
+  new `gl_code` column on CSV/XLSX/PDF finance exports. Aimia to populate real codes.
+- [x] Tests: `tests/test_phase25_features.py` (8 tests, all passing).
+- [x] **Finance processing inline re-coding UI.** `/finance/processing` — editable
+  detail + category per line with **Save coding** (`ClaimRecordTable.showFinanceAmend`).
 
 ## Completed (Done)
 
@@ -197,17 +217,17 @@ Last updated: 2026-06-26
   - Approve/reject actions remain at claim level.
   - Smoke coverage: `test_manager_rejection_aggregates_line_comments`.
 
-## Pending
+## Pending (last items)
 
-- [ ] `P3-04` Azure AD production auth (document + smoke-test real tenant login; set `DEV_LOGIN=0`).
+- [ ] **`P3-04` — Azure AD production auth** (final release task before production: real M365 login, `DEV_LOGIN=0`, tenant smoke test). See `PHASE3_TASK_BOARD.md`.
+- [ ] **Phase 4 — Mileage** (P4-01–P4-04: mileage claims, HMRC rates engine, cumulative mileage, MCC hints). See `PHASE4_TASK_BOARD.md` and `MILEAGE_AND_FEEDBACK_SCOPING.md`.
 - [ ] Pre-pilot DB backup confirmed (`.\scripts\backup.ps1` run and verified).
-- [ ] README / release docs kept in sync after each pilot milestone (ongoing).
 
-## Next Work (Phase 3)
+## Next Work
 
-1. `P3-04` Azure AD production auth (after roles are configured for real users).
-2. Run UAT script pack (`UAT_SCRIPT_PACK.md`) with pilot users on `DEV_LOGIN=1`.
-3. Optional: branch protection requiring CI `Smoke Tests` status on GitHub.
+1. **`P3-04` Azure AD** — last item before turning off dev login.
+2. **Phase 4 mileage** — after P3-04 (see `PHASE4_TASK_BOARD.md`).
+3. Run UAT script pack (`UAT_SCRIPT_PACK.md`) with pilot users on `DEV_LOGIN=1`.
 
 ## Phase Status Snapshot
 
@@ -216,8 +236,9 @@ Last updated: 2026-06-26
 | Phase 1 — capture + validation | Done |
 | Phase 2 — approvals + finance + exports | Done |
 | Phase 3 — operations (P3-01–P3-03, P3-05–P3-08, RP-01) | Done |
-| Phase 3 — Azure AD (`P3-04`) | Pending |
-| Post-board workflow (`W-01`, `W-02`) | Done |
+| Phase 2.5 — JJ feedback (re-code, WFH, GL codes, finance UI) | Done |
+| Phase 3 — Azure AD (`P3-04`) | **Pending (last)** |
+| Phase 4 — Mileage | **Pending** |
 | Agency workflow + ops docs | Done |
 
 ## Quick Resume Commands

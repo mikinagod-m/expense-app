@@ -37,12 +37,26 @@
         <th>Admin</th>
         <th>Card</th>
         <th>Cash</th>
+        <th>Sales</th>
         <th>Reports</th>
         <th>Save</th>
       </tr>
     </thead>
     <tbody id="user-rows">
-      <tr><td colspan="9">Loading users...</td></tr>
+      <tr><td colspan="10">Loading users...</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="card" style="margin-top:24px">
+  <h2 style="margin:0 0 4px">Category coding (GL / nominal codes)</h2>
+  <p class="hint" style="margin:0 0 12px">Aimia posting code for each expense category. Resolved onto Finance exports. Codes are supplied by Finance.</p>
+  <table class="grid">
+    <thead>
+      <tr><th>Category</th><th>GL / nominal code</th><th>Description</th><th>Active</th><th>Save</th></tr>
+    </thead>
+    <tbody id="catcode-rows">
+      <tr><td colspan="5">Loading…</td></tr>
     </tbody>
   </table>
 </div>
@@ -89,6 +103,7 @@ function rowHtml(u) {
       <td data-l="Admin"><input type="checkbox" id="admin-${u.id}" ${u.is_admin ? "checked" : ""}></td>
       <td data-l="Card"><input type="checkbox" id="card-${u.id}" ${u.has_credit_card ? "checked" : ""}></td>
       <td data-l="Cash"><input type="checkbox" id="cash-${u.id}" ${u.can_claim_cash ? "checked" : ""}></td>
+      <td data-l="Sales"><input type="checkbox" id="sales-${u.id}" ${u.is_sales_team ? "checked" : ""}></td>
       <td data-l="Reports">${u.direct_reports || 0}</td>
       <td data-l="Save"><button type="button" class="btn primary sm" onclick="saveUser(${u.id})">Save</button></td>
     </tr>`;
@@ -133,6 +148,7 @@ async function saveUser(userId) {
   fd.append("is_admin", document.getElementById(`admin-${userId}`).checked ? "1" : "");
   fd.append("has_credit_card", document.getElementById(`card-${userId}`).checked ? "1" : "");
   fd.append("can_claim_cash", document.getElementById(`cash-${userId}`).checked ? "1" : "");
+  fd.append("is_sales_team", document.getElementById(`sales-${userId}`).checked ? "1" : "");
   try {
     const r = await fetch(`/admin/users/${userId}`, { method: "POST", body: fd });
     const d = await r.json();
@@ -173,6 +189,34 @@ async function createUser(event) {
   }
 }
 
+async function loadCategoryCodes() {
+  const tbody = document.getElementById("catcode-rows");
+  if (!tbody) return;
+  const r = await fetch("/admin/category-codes/data");
+  if (!r.ok) { tbody.innerHTML = `<tr><td colspan="5">Could not load (finance access required).</td></tr>`; return; }
+  const d = await r.json();
+  tbody.innerHTML = d.codes.map(c => `
+    <tr>
+      <td data-l="Category"><strong>${c.label}</strong></td>
+      <td data-l="GL code"><input type="text" id="gl-${c.category}" value="${c.gl_code || ""}" placeholder="e.g. 7400" style="width:120px"></td>
+      <td data-l="Description"><input type="text" id="gld-${c.category}" value="${c.description || ""}" placeholder="optional" style="width:200px"></td>
+      <td data-l="Active"><input type="checkbox" id="gla-${c.category}" ${c.active ? "checked" : ""}></td>
+      <td data-l="Save"><button type="button" class="btn primary sm" onclick="saveCategoryCode('${c.category}')">Save</button></td>
+    </tr>`).join("");
+}
+
+async function saveCategoryCode(category) {
+  const fd = new FormData();
+  fd.append("category", category);
+  fd.append("gl_code", document.getElementById(`gl-${category}`).value || "");
+  fd.append("description", document.getElementById(`gld-${category}`).value || "");
+  fd.append("active", document.getElementById(`gla-${category}`).checked ? "true" : "false");
+  const r = await fetch("/admin/category-codes", {method:"POST", body: fd});
+  if (r.ok) { setMsg(`Saved GL code for ${category}.`, "ok"); }
+  else { setMsg("Could not save category code.", "err"); }
+}
+
 loadUsers();
+loadCategoryCodes();
 </script>
 {% endblock %}

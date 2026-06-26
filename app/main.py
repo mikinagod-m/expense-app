@@ -16,11 +16,12 @@ from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
 from .config import settings
-from .db import get_db, engine
+from .db import get_db, engine, SessionLocal
 import calendar
 
 from .models import (Base, User, Period, Claim, ClaimLine, Receipt, AuditLog,
-                     ClaimType, ClaimStatus, Category, StatementLine, utc_now)
+                     ClaimType, ClaimStatus, Category, StatementLine, CategoryCode,
+                     utc_now)
 from .auth import (
     current_user,
     require_user,
@@ -53,9 +54,17 @@ from .user_admin import (
     validate_new_user,
 )
 from .ocr import parse_receipt
+from .category_codes import (
+    ensure_category_rows,
+    gl_code_for,
+    serialize_category_codes,
+    update_category_code,
+)
 
 Base.metadata.create_all(engine)
 upgrade_schema(engine)
+with SessionLocal() as _db:
+    ensure_category_rows(_db)
 
 app = FastAPI(title="Aimia Expense App")
 app.add_middleware(SessionMiddleware, secret_key=settings.secret_key)
@@ -106,6 +115,7 @@ def serialize_line_for_review(line: ClaimLine) -> dict:
         "narrative": line.narrative or "",
         "receipt_ref": line.receipt_ref or "",
         "category": line.category.value.replace("_", " "),
+        "category_key": line.category.value if line.category else "other",
         "amount": line.amount,
         "reclaim_vat": line.reclaim_vat,
         "receipt": receipt_info,
@@ -165,6 +175,9 @@ def serialize_claim_record(db: Session, claim: Claim) -> dict:
         "type": claim.type.value,
         "status": claim.status.value,
         "gross_total": claim.gross_total,
+        "wfh_days": claim.wfh_days or 0,
+        "wfh_rate": claim.wfh_rate or 0.0,
+        "wfh_amount": claim.wfh_amount,
         "submitted_at": claim.submitted_at.isoformat() if claim.submitted_at else None,
         "posted_label": posted_label,
         "approved_by_id": claim.approved_by,
@@ -475,6 +488,8 @@ def apply_claim_filters(
 
 
 def build_finance_export_rows(db: Session, claims: list[Claim]) -> list[list]:
+    from .category_codes import gl_code_map
+    codes = gl_code_map(db)
     rows: list[list] = []
     for c in claims:
         period_label = f"{c.period.month:02d}/{c.period.year}"
@@ -488,6 +503,7 @@ def build_finance_export_rows(db: Session, claims: list[Claim]) -> list[list]:
             vat = round(float(line.vat_amount or 0.0), 2)
             net = round(gross - vat, 2)
             has_receipt = "yes" if line.receipt else "no"
+            gl_code = codes.get(line.category, "") if line.category else ""
             rows.append(
                 [
                     line.date.isoformat() if line.date else "",
@@ -498,6 +514,7 @@ def build_finance_export_rows(db: Session, claims: list[Claim]) -> list[list]:
                     c.status.value,
                     line.narrative or "",
                     line.category.value.replace("_", " ") if line.category else "",
+                    gl_code,
                     line.receipt_ref or "",
                     "yes" if line.reclaim_vat else "no",
                     has_receipt,
@@ -521,6 +538,7 @@ FINANCE_EXPORT_HEADERS = [
     "status",
     "detail",
     "category",
+    "gl_code",
     "receipt_ref",
     "vat_reclaim",
     "has_receipt",
@@ -1117,6 +1135,7 @@ def admin_update_user(
     is_admin: str = Form(""),
     has_credit_card: str = Form(""),
     can_claim_cash: str = Form(""),
+    is_sales_team: str = Form(""),
     db: Session = Depends(get_db),
 ):
     admin_user = require_admin(request)
@@ -1144,6 +1163,7 @@ def admin_update_user(
     user.is_admin = parse_bool(is_admin)
     user.has_credit_card = parse_bool(has_credit_card)
     user.can_claim_cash = parse_bool(can_claim_cash)
+    user.is_sales_team = parse_bool(is_sales_team)
     db.commit()
     db.refresh(user)
     log(
@@ -1153,10 +1173,51 @@ def admin_update_user(
         (
             f"user_id={user.id};manager_id={user.manager_id or ''};"
             f"finance={int(user.is_finance)};admin={int(user.is_admin)};"
-            f"card={int(user.has_credit_card)};cash={int(user.can_claim_cash)}"
+            f"card={int(user.has_credit_card)};cash={int(user.can_claim_cash)};"
+            f"sales={int(user.is_sales_team)}"
         ),
     )
     return {"ok": True, "user": serialize_user_row(db, user)}
+
+
+@app.get("/admin/category-codes/data")
+def admin_category_codes_data(request: Request, db: Session = Depends(get_db)):
+    require_finance(request)
+    return {"codes": serialize_category_codes(db)}
+
+
+@app.post("/admin/category-codes")
+def admin_save_category_code(
+    request: Request,
+    category: str = Form(...),
+    gl_code: str = Form(""),
+    description: str = Form(""),
+    active: str = Form("true"),
+    db: Session = Depends(get_db),
+):
+    finance_user = require_finance(request)
+    try:
+        row = update_category_code(
+            db,
+            category_value=category,
+            gl_code=gl_code,
+            description=description,
+            active=parse_bool(active),
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    log(
+        db,
+        finance_user.id,
+        "category_code.update",
+        f"category={row.category.value};gl_code={row.gl_code or ''};active={int(row.active)}",
+    )
+    return {"ok": True, "code": {
+        "category": row.category.value,
+        "gl_code": row.gl_code or "",
+        "description": row.description or "",
+        "active": bool(row.active),
+    }}
 
 
 # ---------------- Claims ----------------
@@ -1260,6 +1321,10 @@ def view_claim(claim_id: int, request: Request, db: Session = Depends(get_db)):
             "approver_name": approver_name,
             "approved_at_label": approved_at_label,
             "submitted_label": submitted_label,
+            "show_wfh": user.is_sales_team and claim.type == ClaimType.cash,
+            "wfh_days": claim.wfh_days or 0,
+            "wfh_rate": claim.wfh_rate or settings.wfh_rate_per_day,
+            "wfh_amount": claim.wfh_amount,
         },
     )
 
@@ -1328,6 +1393,59 @@ def save_line(line_id: int, request: Request,
         f"claim_id={line.claim_id};line_id={line.id};category={line.category.value};amount={line.amount:.2f}",
     )
     return {"ok": True, "errors": [], "gross_total": line.claim.gross_total}
+
+
+@app.post("/lines/{line_id}/amend")
+def finance_amend_line(line_id: int, request: Request,
+                       narrative: str = Form(None), category: str = Form(None),
+                       db: Session = Depends(get_db)):
+    """Finance re-codes a submitted/approved line (coding + description only).
+
+    Amount and date are immutable via this path: claimant owns the figures,
+    Finance owns the coding. Amount changes go through the deduction mechanism.
+    """
+    finance_user = require_finance(request)
+    line = db.get(ClaimLine, line_id)
+    if not line:
+        raise HTTPException(404)
+
+    claim = line.claim
+    if claim.status not in (ClaimStatus.submitted, ClaimStatus.approved):
+        raise HTTPException(
+            400, "Only submitted or approved claims can be re-coded by Finance."
+        )
+
+    changes: list[str] = []
+
+    if category is not None:
+        try:
+            new_category = Category(category)
+        except ValueError:
+            raise HTTPException(400, "Invalid category.")
+        if new_category != line.category:
+            old = line.category.value if line.category else ""
+            changes.append(f"field=category;from={old};to={new_category.value}")
+            line.category = new_category
+
+    if narrative is not None:
+        new_narrative = narrative.strip()
+        if new_narrative != (line.narrative or ""):
+            changes.append("field=narrative")
+            line.narrative = new_narrative
+
+    if not changes:
+        return {"ok": True, "changed": False, "line": serialize_line_for_review(line)}
+
+    db.commit()
+    for change in changes:
+        log(
+            db,
+            finance_user.id,
+            "claim_line.amend",
+            f"claim_id={claim.id};line_id={line.id};{change}",
+        )
+    db.refresh(line)
+    return {"ok": True, "changed": True, "line": serialize_line_for_review(line)}
 
 
 @app.post("/lines/{line_id}/receipt")
@@ -1451,6 +1569,53 @@ def submit_claim(claim_id: int, request: Request, db: Session = Depends(get_db))
     except Exception:
         pass  # notifications must not block submit
     return {"ok": True, "ref": claim.unique_ref}
+
+
+@app.post("/claims/{claim_id}/wfh")
+def save_wfh_days(claim_id: int, request: Request,
+                  wfh_days: int = Form(0),
+                  db: Session = Depends(get_db)):
+    """Record days-working-from-home (Sales team only).
+
+    PAYROLL instruction — advised to payroll at month end. Deliberately excluded
+    from gross_total and authorised-to-pay. Owner-editable while claim is editable.
+    """
+    user = require_user(request)
+    claim = db.get(Claim, claim_id)
+    if not claim or claim.user_id != user.id:
+        raise HTTPException(404)
+    require_editable_claim(claim)
+
+    if not user.is_sales_team:
+        raise HTTPException(403, "Days working from home is for Sales team members only.")
+    if claim.type != ClaimType.cash:
+        raise HTTPException(400, "Days working from home applies to cash claims only.")
+
+    try:
+        days = int(wfh_days)
+    except (TypeError, ValueError):
+        raise HTTPException(400, "Days must be a whole number.")
+    if days < 0 or days > 31:
+        raise HTTPException(400, "Days must be between 0 and 31.")
+
+    claim.wfh_days = days
+    # Snapshot the prevailing rate so a later config change cannot rewrite history.
+    claim.wfh_rate = settings.wfh_rate_per_day if days else 0.0
+    db.commit()
+    log(
+        db,
+        user.id,
+        "claim.wfh_update",
+        f"claim_id={claim.id};wfh_days={days}",
+    )
+    return {
+        "ok": True,
+        "wfh_days": claim.wfh_days,
+        "wfh_rate": claim.wfh_rate,
+        "wfh_amount": claim.wfh_amount,
+        # gross_total intentionally unchanged by WFH.
+        "gross_total": claim.gross_total,
+    }
 
 
 # ---------------- Manager / Finance ----------------

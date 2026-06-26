@@ -68,6 +68,7 @@ For support/debug/recovery procedures, see:
 - `UAT_SCRIPT_PACK.md`
 - `ROLES_PRIVILEGES.md`
 - `RELEASE_READINESS_SUMMARY.md`
+- `PHASE4_TASK_BOARD.md` (mileage — pending)
 
 ## Finance exports (P2-06)
 
@@ -94,6 +95,7 @@ Export columns:
 - `status`
 - `detail`
 - `category`
+- `gl_code`
 - `receipt_ref`
 - `net_gbp`
 - `vat_gbp`

@@ -29,6 +29,47 @@
     return type.charAt(0).toUpperCase() + type.slice(1);
   }
 
+  const FINANCE_CATEGORIES = [
+    { value: "hotel", label: "Hotel" },
+    { value: "subsistence", label: "Subsistence" },
+    { value: "travel", label: "Travel" },
+    { value: "foreign_travel", label: "Foreign travel" },
+    { value: "postage", label: "Postage" },
+    { value: "staff_entertaining", label: "Staff entertaining" },
+    { value: "customer_entertaining", label: "Customer entertaining" },
+    { value: "other", label: "Other" },
+    { value: "personal", label: "Personal" },
+  ];
+
+  function financeCategorySelect(line) {
+    const lineId = line && line.id ? line.id : "";
+    const current = (line && line.category_key) || "other";
+    const options = FINANCE_CATEGORIES.map(
+      (c) => `<option value="${c.value}"${c.value === current ? " selected" : ""}>${escapeHtml(c.label)}</option>`,
+    ).join("");
+    return `
+      <select class="finance-amend-category" data-line-id="${lineId}" aria-label="Category for line ${lineId}">
+        ${options}
+      </select>`;
+  }
+
+  function financeDetailInput(line) {
+    const lineId = line && line.id ? line.id : "";
+    const value = escapeHtml((line && line.narrative) || "");
+    return `
+      <input type="text" class="finance-amend-detail" data-line-id="${lineId}"
+             value="${value}" aria-label="Detail for line ${lineId}">`;
+  }
+
+  function financeAmendControls(line) {
+    const lineId = line && line.id ? line.id : "";
+    return `
+      <div class="finance-amend-controls">
+        <button type="button" class="btn ghost sm finance-amend-save" data-line-id="${lineId}">Save coding</button>
+        <span class="finance-amend-status hint" data-line-id="${lineId}"></span>
+      </div>`;
+  }
+
   function receiptThumb(receipt) {
     if (!receipt) {
       return `<span class="small dim">—</span>`;
@@ -111,6 +152,7 @@
       showActions = false,
       showApprovedBy = false,
       showStatus = false,
+      showFinanceAmend = false,
       nameField = "claimant",
       clickable = false,
       actionHtml = null,
@@ -156,16 +198,22 @@
       actionCell = `<td data-l="Action" rowspan="${span}" class="approval-action-cell">${claimActionCell(claim, actionHtml)}</td>`;
     }
 
-    const detail = line ? escapeHtml(line.narrative || "—") : "—";
+    const detail = line
+      ? (showFinanceAmend ? financeDetailInput(line) : escapeHtml(line.narrative || "—"))
+      : "—";
     const receiptRef = line ? escapeHtml(line.receipt_ref || "—") : "—";
-    const category = line ? escapeHtml(line.category || "—") : "—";
+    const category = line
+      ? (showFinanceAmend
+        ? `${financeCategorySelect(line)}${financeAmendControls(line)}`
+        : escapeHtml(line.category || "—"))
+      : "—";
     const amount = line ? currency(line.amount) : "—";
     const receipt = line ? receiptThumb(line.receipt) : `<span class="small dim">—</span>`;
-    const rowClass = `${clickable ? "clickable " : ""}${isFirst ? "claim-start" : "claim-line"}`;
+    const rowClass = `${clickable ? "clickable " : ""}${isFirst ? "claim-start" : "claim-line"}${showFinanceAmend && line ? " finance-amend-row" : ""}`;
     const clickHandler = clickable && claim.id ? ` onclick="window.location.href='/claims/${claim.id}'"` : "";
 
     return `
-      <tr data-claim-id="${claim.id}" class="${rowClass}"${clickHandler}>
+      <tr data-claim-id="${claim.id}"${line && line.id ? ` data-line-id="${line.id}"` : ""} class="${rowClass}"${clickHandler}>
         ${nameCell}
         <td data-l="Detail">${detail}</td>
         <td data-l="Receipt ref" class="mono">${receiptRef}</td>
@@ -192,6 +240,35 @@
       input.dataset.counterBound = "1";
       refresh();
     });
+  }
+
+  function bindFinanceAmendControls(root, handler) {
+    root.querySelectorAll(".finance-amend-save").forEach((btn) => {
+      if (btn.dataset.bound === "1") return;
+      btn.addEventListener("click", () => {
+        handler(Number(btn.dataset.lineId));
+      });
+      btn.dataset.bound = "1";
+    });
+  }
+
+  function setFinanceAmendStatus(lineId, text, type = "") {
+    const node = document.querySelector(`.finance-amend-status[data-line-id="${lineId}"]`);
+    if (!node) return;
+    node.textContent = text;
+    node.className = `finance-amend-status hint ${type}`.trim();
+  }
+
+  function readFinanceAmendValues(lineId) {
+    const row = document.querySelector(`tr[data-line-id="${lineId}"]`);
+    if (!row) return null;
+    const detail = row.querySelector(".finance-amend-detail");
+    const category = row.querySelector(".finance-amend-category");
+    if (!detail || !category) return null;
+    return {
+      narrative: detail.value.trim(),
+      category: category.value,
+    };
   }
 
   function bindDecisionButtons(root, handler) {
@@ -234,6 +311,10 @@
     bindDecisionButtons,
     collectLineComments,
     formatLineComments,
+    bindFinanceAmendControls,
+    setFinanceAmendStatus,
+    readFinanceAmendValues,
+    FINANCE_CATEGORIES,
     historyLineToRow,
     receiptThumb,
   };

@@ -30,5 +30,9 @@ class Settings(BaseSettings):
     backup_dir: str = "./backups"
     backup_retention_days: int = 14
 
+    # Days-working-from-home rate (Sales team, paid via Payroll). Stored as a
+    # setting so the per-claim snapshot can change without code edits.
+    wfh_rate_per_day: float = 1.35
+
 
 settings = Settings()

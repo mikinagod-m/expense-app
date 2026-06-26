@@ -255,6 +255,14 @@ button.danger:hover,.btn.danger:hover{filter:brightness(1.08)}
 .approval-comment-cell{min-width:160px}
 .approval-action-cell{min-width:110px}
 .approval-actions{display:flex;flex-direction:column;gap:8px}
+.finance-amend-detail{width:100%;min-width:140px;max-width:260px;font:inherit;font-size:13px;border:1px solid var(--line-2);border-radius:6px;padding:6px 8px;background:var(--panel)}
+.finance-amend-detail:focus{outline:0;border-color:var(--navy)}
+.finance-amend-category{display:block;width:100%;min-width:140px;max-width:220px;margin-bottom:6px;font:inherit;font-size:13px;border:1px solid var(--line-2);border-radius:6px;padding:6px 8px;background:var(--panel)}
+.finance-amend-category:focus{outline:0;border-color:var(--navy)}
+.finance-amend-controls{display:flex;flex-direction:column;gap:4px;margin-top:2px}
+.finance-amend-status{font-size:11px;min-height:14px}
+.finance-amend-status.ok{color:var(--ok,#1d6b1d)}
+.finance-amend-status.err{color:var(--danger,#9d3a3a)}
 .receipt-cell{min-width:56px}
 .receipt-thumb-btn{display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--line-2);border-radius:6px;overflow:hidden;background:var(--field);padding:0;cursor:pointer;line-height:0;transition:border-color .15s,box-shadow .15s}
 .receipt-thumb-btn:hover{border-color:var(--navy);box-shadow:0 0 0 2px var(--navy-bg)}

@@ -39,6 +39,7 @@ def serialize_user_row(db: Session, user: User) -> dict:
         "is_admin": user.is_admin,
         "has_credit_card": user.has_credit_card,
         "can_claim_cash": user.can_claim_cash,
+        "is_sales_team": user.is_sales_team,
         "roles": user_roles(db, user),
         "direct_reports": db.scalar(
             select(func.count()).select_from(User).where(User.manager_id == user.id)

@@ -14,7 +14,7 @@ Phase 3 moves the pilot-ready app into **production operations**: notifications,
 | P3-01 | P0 | Email notifications (submit → manager, decision → claimant) | Backend Engineer | Done | - |
 | P3-02 | P0 | Statement CSV import for card reconciliation | Backend + Frontend Engineer | Done | - |
 | P3-03 | P0 | Finance period management (open/close claim windows) | Backend + Frontend Engineer | Done | - |
-| P3-04 | P1 | Azure AD production auth validation + login UX | Backend Engineer + Security Reviewer | Pending | - |
+| P3-04 | P1 | Azure AD production auth validation + login UX | Backend Engineer + Security Reviewer | **Pending (last)** | - |
 | P3-05 | P1 | Reconciliation auto-match suggestions | Backend Engineer | Done | P3-02 |
 | RP-01 | P0 | Roles & privileges admin UI | Backend + Frontend Engineer | Done | - |
 | P3-06 | P1 | Scheduled DB + receipts backup script | DevOps Engineer | Done | - |
@@ -106,4 +106,4 @@ Phase 3 moves the pilot-ready app into **production operations**: notifications,
 
 Phase 3 pilot-ready when P0 items are done, notifications do not block claim workflow, and finance can import statements + manage periods without DB edits.
 
-**Status (2026-06-26):** Ship gate met for `DEV_LOGIN=1` pilot. Remaining for production: `P3-04` Azure AD.
+**Status (2026-06-26):** Ship gate met for `DEV_LOGIN=1` pilot. **Remaining for production:** `P3-04` Azure AD (last). **Phase 4 mileage** tracked separately in `PHASE4_TASK_BOARD.md`.

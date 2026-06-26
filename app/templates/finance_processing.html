@@ -3,7 +3,7 @@
 {% block content %}
 <p class="kicker">Finance</p>
 <h1>Processing queue</h1>
-<p class="lede">Review approved claims with full line detail before marking them processed.</p>
+<p class="lede">Review approved claims with full line detail. Update category or description inline before marking processed.</p>
 
 <div id="msg" class="hint"></div>
 
@@ -98,7 +98,38 @@ function bindProcessButtons() {
     btn.addEventListener("click", () => processClaim(Number(btn.dataset.process)));
     btn.dataset.bound = "1";
   });
+  ClaimRecordTable.bindFinanceAmendControls(financeRowsNode, amendLine);
   bindReceiptThumbButtons(financeRowsNode);
+}
+
+async function amendLine(lineId) {
+  const values = ClaimRecordTable.readFinanceAmendValues(lineId);
+  if (!values) return;
+  const saveBtn = document.querySelector(`.finance-amend-save[data-line-id="${lineId}"]`);
+  if (saveBtn) saveBtn.disabled = true;
+  ClaimRecordTable.setFinanceAmendStatus(lineId, "Saving…");
+  const fd = new FormData();
+  fd.append("narrative", values.narrative);
+  fd.append("category", values.category);
+  try {
+    const r = await fetch(`/lines/${lineId}/amend`, { method: "POST", body: fd });
+    const d = await r.json();
+    if (!r.ok || d.ok === false) {
+      ClaimRecordTable.setFinanceAmendStatus(lineId, d.detail || "Unable to save coding.", "err");
+      if (saveBtn) saveBtn.disabled = false;
+      return;
+    }
+    if (d.changed) {
+      ClaimRecordTable.setFinanceAmendStatus(lineId, "Coding saved.", "ok");
+      setFinanceMessage(`Line ${lineId} re-coded. Amount unchanged.`, "ok");
+    } else {
+      ClaimRecordTable.setFinanceAmendStatus(lineId, "No changes.", "ok");
+    }
+  } catch (e) {
+    ClaimRecordTable.setFinanceAmendStatus(lineId, "Network error.", "err");
+  } finally {
+    if (saveBtn) saveBtn.disabled = false;
+  }
 }
 
 async function loadApproved() {
@@ -125,6 +156,7 @@ async function loadApproved() {
     financeRowsNode.innerHTML = rows.map((row) => ClaimRecordTable.renderRow(row, {
       showApprovedBy: true,
       showActions: true,
+      showFinanceAmend: true,
       actionHtml: row.isFirst ? processActionHtml(row.claim) : null,
     })).join("");
     bindProcessButtons();

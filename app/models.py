@@ -61,6 +61,9 @@ class User(Base):
     has_credit_card: Mapped[bool] = mapped_column(Boolean, default=False)
     is_finance: Mapped[bool] = mapped_column(Boolean, default=False)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Sales team members can record "days working from home" (paid via Payroll,
+    # NOT reimbursed through the expense claim).
+    is_sales_team: Mapped[bool] = mapped_column(Boolean, default=False)
 
     manager: Mapped["User"] = relationship(remote_side=[id])
     claims: Mapped[list["Claim"]] = relationship(back_populates="user",
@@ -92,6 +95,13 @@ class Claim(Base):
     approved_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     approved_at: Mapped[dt.datetime | None] = mapped_column(DateTime, nullable=True)
 
+    # Days-working-from-home (Sales team only). This is a PAYROLL instruction —
+    # advised to payroll at month end — and is deliberately NOT part of the claim
+    # total or the authorised-to-pay figure. wfh_rate is snapshotted so a future
+    # rate change does not rewrite history.
+    wfh_days: Mapped[int] = mapped_column(Integer, default=0)
+    wfh_rate: Mapped[float] = mapped_column(Float, default=0.0)
+
     user: Mapped["User"] = relationship(back_populates="claims",
                                         foreign_keys=[user_id])
     approver: Mapped["User | None"] = relationship(foreign_keys=[approved_by])
@@ -102,6 +112,11 @@ class Claim(Base):
     @property
     def gross_total(self) -> float:
         return round(sum(l.amount for l in self.lines), 2)
+
+    @property
+    def wfh_amount(self) -> float:
+        """Display-only payroll figure. Never added to gross_total / to-pay."""
+        return round((self.wfh_days or 0) * (self.wfh_rate or 0.0), 2)
 
 
 class ClaimLine(Base):
@@ -161,3 +176,18 @@ class StatementLine(Base):
     created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=utc_now)
 
     claim_line: Mapped["ClaimLine | None"] = relationship(back_populates="statement_line")
+
+
+class CategoryCode(Base):
+    """Maps an expense Category to Aimia's GL/nominal posting code.
+
+    Codes are populated by Finance (chart-of-accounts values). Resolved onto
+    finance exports so coding lands directly on the posting screen.
+    """
+    __tablename__ = "category_codes"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    category: Mapped[Category] = mapped_column(Enum(Category), unique=True)
+    gl_code: Mapped[str] = mapped_column(String(64), default="")
+    description: Mapped[str] = mapped_column(String(200), default="")
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    updated_at: Mapped[dt.datetime] = mapped_column(DateTime, default=utc_now)

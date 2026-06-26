@@ -58,6 +58,23 @@
       <span class="hint claim-toolbar-hint">Rows auto-save while you type.</span>
     </div>
 
+    {% if show_wfh %}
+    <div class="wfh-block" style="margin:14px 0;padding:12px 14px;border:1px solid #e2e2e2;border-radius:8px;background:#fafafa">
+      <div style="font-weight:600;margin-bottom:6px">Days working from home <span style="font-weight:400;color:#a23">(Sales team — paid via Payroll)</span></div>
+      <p class="hint" style="margin:0 0 8px">Recorded for Payroll at month end. <strong>Not part of this claim total or the amount paid to you.</strong></p>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <label>Days
+          <input type="number" id="wfh_days" min="0" max="31" value="{{ wfh_days }}"
+                 {% if not is_editable %}disabled{% endif %}
+                 style="width:70px;margin-left:6px" onchange="saveWfh({{ claim.id }})">
+        </label>
+        <span>× £<span id="wfh_rate">{{ "%.2f"|format(wfh_rate) }}</span>/day</span>
+        <span>= <strong>£<span id="wfh_amount">{{ "%.2f"|format(wfh_amount) }}</span></strong> (via Payroll)</span>
+        <span id="wfh_status" class="hint"></span>
+      </div>
+    </div>
+    {% endif %}
+
     <div class="claim-submit-block">
       <div class="claim-submit-total">
         <span class="l">Gross total</span>
@@ -274,6 +291,25 @@ async function saveLine(row, lineId) {
     updateGrossTotal(d.gross_total);
   }
   setRowSaveState(row, "Saved", "saved");
+}
+
+async function saveWfh(id) {
+  const el = document.getElementById("wfh_days");
+  const status = document.getElementById("wfh_status");
+  if (!el) return;
+  status.textContent = "Saving…";
+  const body = new FormData();
+  body.append("wfh_days", el.value || "0");
+  const r = await fetch(`/claims/${id}/wfh`, {method:"POST", body});
+  if (r.ok) {
+    const d = await r.json();
+    document.getElementById("wfh_amount").textContent = d.wfh_amount.toFixed(2);
+    if (d.wfh_rate) document.getElementById("wfh_rate").textContent = d.wfh_rate.toFixed(2);
+    status.textContent = "Saved";
+    setTimeout(() => { status.textContent = ""; }, 1500);
+  } else {
+    status.textContent = "Could not save";
+  }
 }
 
 async function submitClaim(id) {

@@ -9,7 +9,8 @@ Scope: Expense App pilot readiness snapshot
 - Phase 2 board: complete
 - Phase 3 board: complete except `P3-04` (Azure AD production auth)
 - Post-board workflow items `W-01` (reject → edit → resubmit) and `W-02` (per-line manager comments): complete
-- Smoke suite: **21 tests**, passing
+- Phase 2.5 (JJ feedback): finance line re-coding, Sales WFH (Payroll), category GL codes, **inline re-coding on finance processing page** — complete
+- Test suite: **29 tests** (21 smoke + 8 Phase 2.5), passing
 - CI smoke gate: configured on push + PR
 - Ops/UAT docs: present
 - Pilot-ready on `DEV_LOGIN=1`; production M365 login pending `P3-04`
@@ -21,6 +22,7 @@ Scope: Expense App pilot readiness snapshot
 - Receipt upload with OCR suggestions + confidence hint
 - Duplicate receipt warning guardrails (non-blocking)
 - Rejected claims editable with resubmit (manager feedback banner + timeline)
+- Days working from home (Sales team, cash claims only — excluded from claim total; paid via Payroll)
 
 ### Manager
 - Approval queue with receipt preview
@@ -30,6 +32,8 @@ Scope: Expense App pilot readiness snapshot
 
 ### Finance
 - Processing flow (approved queue + process)
+- Line re-coding on processing queue (editable detail + category per line, **Save coding**)
+- Category GL/nominal codes admin + `gl_code` on exports
 - Period open/close management
 - Exports: CSV, XLSX, PDF (filtered)
 - Reconciliation: CSV import, manual match, auto-match suggestions
@@ -84,7 +88,7 @@ netstat -ano | rg "8000"
 
 ## 4) Pilot Go/No-Go Checks
 
-- [x] Smoke tests green (21 tests)
+- [x] Smoke tests green (29 tests)
 - [x] Role checks validated (claimant, manager, finance, admin)
 - [x] Exports open correctly (CSV + XLSX + PDF)
 - [x] Reconciliation page loads and match action works
@@ -92,7 +96,7 @@ netstat -ano | rg "8000"
 - [x] Reject → edit → resubmit flow validated
 - [x] Per-line manager rejection comments validated
 - [ ] Backup created for DB (`data/expenses.db`) — run `.\scripts\backup.ps1` before go-live
-- [ ] Azure AD login validated (`P3-04`) — required before `DEV_LOGIN=0`
+- [ ] Azure AD login validated (`P3-04`) — **last item before production**; required before `DEV_LOGIN=0`
 
 ## 5) Key Documents
 
@@ -100,6 +104,7 @@ netstat -ano | rg "8000"
 - `PHASE1_TASK_BOARD.md`
 - `PHASE2_TASK_BOARD.md`
 - `PHASE3_TASK_BOARD.md`
+- `PHASE4_TASK_BOARD.md`
 - `OPERATIONS_RUNBOOK.md`
 - `DEPLOYMENT_CHECKLIST.md`
 - `UAT_SCRIPT_PACK.md`
@@ -111,8 +116,6 @@ netstat -ano | rg "8000"
 
 | Item | Priority |
 |---|---|
-| `P3-04` Azure AD production auth | Required for production |
+| **`P3-04` Azure AD production auth** | **Last — required for production** |
+| **Phase 4 mileage** (P4-01–P4-04) | Pending — see `PHASE4_TASK_BOARD.md` |
 | Pre-pilot backup verification | Recommended before go-live |
-| Branch protection requiring `Smoke Tests` CI status | Optional |
-| Richer reconciliation auto-suggestions | Optional polish |
-| UI polish for audit timeline and manager/finance detail views | Optional polish |
