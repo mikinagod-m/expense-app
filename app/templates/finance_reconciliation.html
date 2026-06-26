@@ -1,10 +1,20 @@
 {% extends "base.html" %}
+{% block title %}Finance reconciliation · Aimia Expenses{% endblock %}
 {% block content %}
-<a href="/">&larr; back</a>
-<h1>Finance reconciliation</h1>
-<p>Match card statement lines against card claim lines and track unmatched/missing items.</p>
+<p class="kicker">Finance</p>
+<h1>Reconciliation</h1>
+<p class="lede">Match card statement lines against card claim lines and track unmatched or missing items.</p>
 
 <div id="msg" class="hint"></div>
+
+<div class="box" style="margin-bottom:24px">
+  <h3>Import statement CSV</h3>
+  <p class="hint">Required columns: date, merchant/description, amount. Optional: cardholder, currency.</p>
+  <form id="import-form" class="filters" onsubmit="importStatement(event)">
+    <label>CSV file<input type="file" id="import-file" accept=".csv,text/csv" required></label>
+    <button type="submit" class="btn primary sm">Import</button>
+  </form>
+</div>
 
 <div class="filters">
   <label>Period
@@ -16,46 +26,53 @@
       <option value="attention">attention only</option>
     </select>
   </label>
-  <button onclick="applyReconFilters()">Apply</button>
+  <button type="button" class="btn primary sm" onclick="applyReconFilters()">Apply</button>
 </div>
 
-<h2>Statement lines</h2>
-<table>
-  <thead>
-    <tr>
-      <th>Statement ID</th>
-      <th>Date</th>
-      <th>Cardholder</th>
-      <th>Merchant</th>
-      <th>Statement £</th>
-      <th>Status</th>
-      <th>Matched claim</th>
-      <th>Manual match</th>
-    </tr>
-  </thead>
-  <tbody id="statement-rows">
-    <tr><td colspan="8">Loading statement lines...</td></tr>
-  </tbody>
-</table>
+<h2 class="sec-title">Statement lines</h2>
+<div class="scroll-x">
+  <table class="ledger stack-cards">
+    <thead>
+      <tr>
+        <th>Statement ID</th>
+        <th>Date</th>
+        <th>Cardholder</th>
+        <th>Merchant</th>
+        <th class="r">Statement £</th>
+        <th>Status</th>
+        <th>Suggested match</th>
+        <th>Matched claim</th>
+        <th>Manual match</th>
+      </tr>
+    </thead>
+    <tbody id="statement-rows">
+      <tr><td colspan="9">Loading statement lines...</td></tr>
+    </tbody>
+  </table>
+</div>
 
-<h2>Missing statement entries</h2>
-<table>
-  <thead>
-    <tr>
-      <th>Claim line</th>
-      <th>Claim ref</th>
-      <th>Claimant</th>
-      <th>Date</th>
-      <th>Detail</th>
-      <th>Claim £</th>
-      <th>Status</th>
-    </tr>
-  </thead>
-  <tbody id="missing-rows">
-    <tr><td colspan="7">Loading missing rows...</td></tr>
-  </tbody>
-</table>
+<h2 class="sec-title">Missing statement entries</h2>
+<div class="scroll-x">
+  <table class="ledger stack-cards">
+    <thead>
+      <tr>
+        <th>Claim line</th>
+        <th>Claim ref</th>
+        <th>Claimant</th>
+        <th>Date</th>
+        <th>Detail</th>
+        <th class="r">Claim £</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody id="missing-rows">
+      <tr><td colspan="7">Loading missing rows...</td></tr>
+    </tbody>
+  </table>
+</div>
+{% endblock %}
 
+{% block scripts %}
 <script>
 const reconMessage = document.getElementById("msg");
 const statementRowsNode = document.getElementById("statement-rows");
@@ -83,24 +100,38 @@ function query() {
   return params.toString();
 }
 
+function suggestionHtml(r) {
+  const s = r.suggested_match;
+  if (!s) return "—";
+  const detail = s.detail ? ` · ${s.detail}` : "";
+  const alt = s.match_count > 1 ? ` (${s.match_count} candidates)` : "";
+  return `
+    <div class="recon-suggestion">
+      <span>#${s.claim_line_id} · ${s.claimant || "—"} · ${s.claim_ref || "no-ref"}${detail} · ${money(s.amount)}${alt}</span>
+      <button type="button" class="btn primary sm" onclick="acceptSuggestion(${r.statement_line_id}, ${s.claim_line_id})">Accept match</button>
+    </div>
+  `;
+}
+
 function statementRowHtml(r) {
   const matched = r.claim_line_id
     ? `#${r.claim_line_id} (${r.claim_ref || "no-ref"})`
     : "—";
   const action = r.status === "unmatched_statement"
     ? `<input type="number" min="1" placeholder="claim_line_id" id="match-${r.statement_line_id}" style="width:120px">
-       <button onclick="matchStatement(${r.statement_line_id})">Match</button>`
+       <button type="button" class="btn sm" onclick="matchStatement(${r.statement_line_id})">Match</button>`
     : "—";
   return `
     <tr>
-      <td>${r.statement_line_id}</td>
-      <td>${r.date || "—"}</td>
-      <td>${r.cardholder || "—"}</td>
-      <td>${r.merchant || "—"}</td>
-      <td>${money(r.statement_amount)}</td>
-      <td>${r.status}</td>
-      <td>${matched}</td>
-      <td>${action}</td>
+      <td data-l="Statement ID">${r.statement_line_id}</td>
+      <td data-l="Date">${r.date || "—"}</td>
+      <td data-l="Cardholder">${r.cardholder || "—"}</td>
+      <td data-l="Merchant">${r.merchant || "—"}</td>
+      <td class="amt r" data-l="Statement £">${money(r.statement_amount)}</td>
+      <td data-l="Status"><span class="pill ${r.status === 'matched' ? 'matched' : 'unmatched'}">${r.status}</span></td>
+      <td data-l="Suggested match">${suggestionHtml(r)}</td>
+      <td data-l="Matched claim">${matched}</td>
+      <td data-l="Manual match">${action}</td>
     </tr>
   `;
 }
@@ -108,13 +139,13 @@ function statementRowHtml(r) {
 function missingRowHtml(r) {
   return `
     <tr>
-      <td>#${r.claim_line_id}</td>
-      <td>${r.claim_ref || "—"}</td>
-      <td>${r.claimant || "—"}</td>
-      <td>${r.date || "—"}</td>
-      <td>${r.merchant_hint || "—"}</td>
-      <td>${money(r.claim_amount)}</td>
-      <td>${r.status}</td>
+      <td data-l="Claim line">#${r.claim_line_id}</td>
+      <td data-l="Claim ref">${r.claim_ref || "—"}</td>
+      <td data-l="Claimant">${r.claimant || "—"}</td>
+      <td data-l="Date">${r.date || "—"}</td>
+      <td data-l="Detail">${r.merchant_hint || "—"}</td>
+      <td class="amt r" data-l="Claim £">${money(r.claim_amount)}</td>
+      <td data-l="Status"><span class="pill missing">${r.status}</span></td>
     </tr>
   `;
 }
@@ -125,7 +156,7 @@ async function loadRecon() {
     const r = await fetch(`/finance/reconciliation/data?${query()}`);
     if (r.status === 401 || r.status === 403) {
       setReconMessage("Access denied. You need finance permissions.", "err");
-      statementRowsNode.innerHTML = "<tr><td colspan='8'>No access.</td></tr>";
+      statementRowsNode.innerHTML = "<tr><td colspan='9'>No access.</td></tr>";
       missingRowsNode.innerHTML = "<tr><td colspan='7'>No access.</td></tr>";
       return;
     }
@@ -137,12 +168,16 @@ async function loadRecon() {
 
     statementRowsNode.innerHTML = d.statement_rows.length
       ? d.statement_rows.map(statementRowHtml).join("")
-      : "<tr><td colspan='8'>No statement lines for this filter.</td></tr>";
+      : "<tr><td colspan='9'>No statement lines for this filter.</td></tr>";
     missingRowsNode.innerHTML = d.missing_claim_rows.length
       ? d.missing_claim_rows.map(missingRowHtml).join("")
       : "<tr><td colspan='7'>No missing claim lines for this filter.</td></tr>";
     const s = d.summary || {};
-    setReconMessage(`Matched: ${s.matched || 0} · Unmatched statement: ${s.unmatched_statement || 0} · Missing statement: ${s.missing_statement || 0}`, "ok");
+    const suggestionCount = (d.statement_rows || []).filter((row) => row.suggested_match).length;
+    setReconMessage(
+      `Matched: ${s.matched || 0} · Unmatched statement: ${s.unmatched_statement || 0} · Missing statement: ${s.missing_statement || 0} · Suggestions: ${suggestionCount}`,
+      "ok"
+    );
   } catch (e) {
     setReconMessage("Network error while loading reconciliation data.", "err");
   }
@@ -154,9 +189,37 @@ function applyReconFilters() {
   loadRecon();
 }
 
-async function matchStatement(statementLineId) {
+async function importStatement(event) {
+  event.preventDefault();
+  const fileInput = document.getElementById("import-file");
+  if (!fileInput.files || !fileInput.files[0]) {
+    setReconMessage("Choose a CSV file to import.", "err");
+    return;
+  }
+  const fd = new FormData();
+  fd.append("file", fileInput.files[0]);
+  try {
+    const r = await fetch("/finance/reconciliation/import", { method: "POST", body: fd });
+    const d = await r.json();
+    if (!r.ok || !d.ok) {
+      setReconMessage(d.detail || "Import failed.", "err");
+      return;
+    }
+    let text = `Imported ${d.imported} statement line(s).`;
+    if (d.warnings && d.warnings.length) {
+      text += ` ${d.warnings.length} row warning(s).`;
+    }
+    setReconMessage(text, "ok");
+    fileInput.value = "";
+    await loadRecon();
+  } catch (e) {
+    setReconMessage("Network error during import.", "err");
+  }
+}
+
+async function matchStatement(statementLineId, claimLineIdOverride) {
   const input = document.getElementById(`match-${statementLineId}`);
-  const claimLineId = Number(input && input.value);
+  const claimLineId = claimLineIdOverride || Number(input && input.value);
   if (!claimLineId || claimLineId < 1) {
     setReconMessage("Enter a valid claim_line_id to match.", "err");
     return;
@@ -175,6 +238,10 @@ async function matchStatement(statementLineId) {
   } catch (e) {
     setReconMessage("Network error while matching statement line.", "err");
   }
+}
+
+function acceptSuggestion(statementLineId, claimLineId) {
+  matchStatement(statementLineId, claimLineId);
 }
 
 loadRecon();

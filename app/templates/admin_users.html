@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+{% block title %}Users & roles · Aimia Expenses{% endblock %}
+{% block content %}
+<p class="kicker">Administration</p>
+<h1>Users &amp; roles</h1>
+<p class="lede">Assign managers, finance access, and claim entitlements. Azure login only creates the account — privileges are managed here.</p>
+
+<div id="msg" class="hint"></div>
+
+<div class="box" style="margin-bottom:24px">
+  <h3>Add user</h3>
+  <p class="hint">Pre-provision someone before their first Microsoft login, or add pilot users while <code>DEV_LOGIN=1</code>.</p>
+  <form id="create-user-form" class="filters" onsubmit="createUser(event)">
+    <label>Name<input type="text" id="u-name" required></label>
+    <label>Email<input type="email" id="u-email" required></label>
+    <label>Manager
+      <select id="u-manager">
+        <option value="">None</option>
+      </select>
+    </label>
+    <label class="chk"><input type="checkbox" id="u-finance"> Finance</label>
+    <label class="chk"><input type="checkbox" id="u-admin"> Admin</label>
+    <label class="chk"><input type="checkbox" id="u-card"> Credit card</label>
+    <label class="chk"><input type="checkbox" id="u-cash" checked> Cash claims</label>
+    <button type="submit" class="btn primary sm">Add user</button>
+  </form>
+</div>
+
+<div class="scroll-x approval-table-wrap">
+  <table class="ledger stack-cards">
+    <thead>
+      <tr>
+        <th>User</th>
+        <th>Roles</th>
+        <th>Manager</th>
+        <th>Finance</th>
+        <th>Admin</th>
+        <th>Card</th>
+        <th>Cash</th>
+        <th>Reports</th>
+        <th>Save</th>
+      </tr>
+    </thead>
+    <tbody id="user-rows">
+      <tr><td colspan="9">Loading users...</td></tr>
+    </tbody>
+  </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const msg = document.getElementById("msg");
+const rowsNode = document.getElementById("user-rows");
+const createManagerNode = document.getElementById("u-manager");
+let managerOptions = [];
+
+function setMsg(text, type = "") {
+  msg.textContent = text;
+  msg.className = `hint ${type}`.trim();
+}
+
+function rolePills(roles) {
+  return (roles || ["claimant"]).map((role) => {
+    const cls = role === "manager" ? "submitted" : role === "finance" ? "approved" : role === "admin" ? "matched" : "draft";
+    return `<span class="pill ${cls}">${role}</span>`;
+  }).join(" ");
+}
+
+function managerSelectHtml(userId, selectedId) {
+  const options = managerOptions
+    .filter((m) => m.id !== userId)
+    .map((m) => {
+      const selected = selectedId === m.id ? " selected" : "";
+      return `<option value="${m.id}"${selected}>${m.name}</option>`;
+    })
+    .join("");
+  const noneSelected = selectedId ? "" : " selected";
+  return `<select id="manager-${userId}"><option value=""${noneSelected}>None</option>${options}</select>`;
+}
+
+function rowHtml(u) {
+  return `
+    <tr>
+      <td data-l="User"><strong>${u.name}</strong><br><small>${u.email}</small></td>
+      <td data-l="Roles">${rolePills(u.roles)}</td>
+      <td data-l="Manager">${managerSelectHtml(u.id, u.manager_id)}</td>
+      <td data-l="Finance"><input type="checkbox" id="finance-${u.id}" ${u.is_finance ? "checked" : ""}></td>
+      <td data-l="Admin"><input type="checkbox" id="admin-${u.id}" ${u.is_admin ? "checked" : ""}></td>
+      <td data-l="Card"><input type="checkbox" id="card-${u.id}" ${u.has_credit_card ? "checked" : ""}></td>
+      <td data-l="Cash"><input type="checkbox" id="cash-${u.id}" ${u.can_claim_cash ? "checked" : ""}></td>
+      <td data-l="Reports">${u.direct_reports || 0}</td>
+      <td data-l="Save"><button type="button" class="btn primary sm" onclick="saveUser(${u.id})">Save</button></td>
+    </tr>`;
+}
+
+function fillManagerOptions() {
+  const options = managerOptions
+    .map((m) => `<option value="${m.id}">${m.name}</option>`)
+    .join("");
+  createManagerNode.innerHTML = `<option value="">None</option>${options}`;
+}
+
+async function loadUsers() {
+  setMsg("Loading users...");
+  try {
+    const r = await fetch("/admin/users/data");
+    if (r.status === 401 || r.status === 403) {
+      setMsg("Access denied. You need admin permissions.", "err");
+      rowsNode.innerHTML = "<tr><td colspan='9'>No access.</td></tr>";
+      return;
+    }
+    const d = await r.json();
+    if (!r.ok || !d.ok) {
+      setMsg(d.detail || "Unable to load users.", "err");
+      return;
+    }
+    managerOptions = d.manager_options || [];
+    fillManagerOptions();
+    rowsNode.innerHTML = d.users.length
+      ? d.users.map(rowHtml).join("")
+      : "<tr><td colspan='9'>No users yet.</td></tr>";
+    setMsg(`${d.users.length} user(s) loaded.`, "ok");
+  } catch (e) {
+    setMsg("Network error while loading users.", "err");
+  }
+}
+
+async function saveUser(userId) {
+  const fd = new FormData();
+  fd.append("manager_id", document.getElementById(`manager-${userId}`).value || "");
+  fd.append("is_finance", document.getElementById(`finance-${userId}`).checked ? "1" : "");
+  fd.append("is_admin", document.getElementById(`admin-${userId}`).checked ? "1" : "");
+  fd.append("has_credit_card", document.getElementById(`card-${userId}`).checked ? "1" : "");
+  fd.append("can_claim_cash", document.getElementById(`cash-${userId}`).checked ? "1" : "");
+  try {
+    const r = await fetch(`/admin/users/${userId}`, { method: "POST", body: fd });
+    const d = await r.json();
+    if (!r.ok || !d.ok) {
+      setMsg(d.detail || "Unable to save user.", "err");
+      return;
+    }
+    setMsg(`Saved privileges for ${d.user.name}.`, "ok");
+    await loadUsers();
+  } catch (e) {
+    setMsg("Network error while saving user.", "err");
+  }
+}
+
+async function createUser(event) {
+  event.preventDefault();
+  const fd = new FormData();
+  fd.append("name", document.getElementById("u-name").value.trim());
+  fd.append("email", document.getElementById("u-email").value.trim());
+  fd.append("manager_id", createManagerNode.value || "");
+  fd.append("is_finance", document.getElementById("u-finance").checked ? "1" : "");
+  fd.append("is_admin", document.getElementById("u-admin").checked ? "1" : "");
+  fd.append("has_credit_card", document.getElementById("u-card").checked ? "1" : "");
+  fd.append("can_claim_cash", document.getElementById("u-cash").checked ? "1" : "");
+  try {
+    const r = await fetch("/admin/users", { method: "POST", body: fd });
+    const d = await r.json();
+    if (!r.ok || !d.ok) {
+      setMsg(d.detail || "Unable to add user.", "err");
+      return;
+    }
+    document.getElementById("create-user-form").reset();
+    document.getElementById("u-cash").checked = true;
+    setMsg(`Added ${d.user.name}.`, "ok");
+    await loadUsers();
+  } catch (e) {
+    setMsg("Network error while adding user.", "err");
+  }
+}
+
+loadUsers();
+</script>
+{% endblock %}

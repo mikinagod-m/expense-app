@@ -1,0 +1,30 @@
+<tr class="line-row-readonly" data-line-id="{{ line.id }}">
+  <td>{{ line.date.strftime('%d %b %Y').lstrip('0') if line.date else '—' }}</td>
+  <td>{{ line.narrative or '—' }}</td>
+  <td class="mono">{{ line.receipt_ref or '—' }}</td>
+  <td>{{ line.category.value.replace('_', ' ') }}</td>
+  <td class="amt r">£{{ '%.2f'|format(line.amount) }}</td>
+  <td class="c">{% if line.reclaim_vat %}Yes{% else %}—{% endif %}</td>
+  <td class="c receipt-cell">
+    {% if line.receipt and line.receipt.id %}
+      {% set receipt_url = '/receipts/' ~ line.receipt.id %}
+      {% set fname = line.receipt.file_path.split('\\')[-1].split('/')[-1] %}
+      {% set is_image = fname.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')) %}
+      {% if is_image %}
+      <button type="button" class="receipt-thumb-btn" title="View receipt"
+              data-receipt-url="{{ receipt_url }}"
+              data-receipt-image="1"
+              data-receipt-label="{{ fname }}">
+        <img class="receipt-thumb" src="{{ receipt_url }}" alt="" loading="lazy">
+      </button>
+      {% else %}
+      <button type="button" class="receipt-thumb-btn receipt-pdf-btn" title="View receipt"
+              data-receipt-url="{{ receipt_url }}"
+              data-receipt-pdf="1"
+              data-receipt-label="{{ fname }}">PDF</button>
+      {% endif %}
+    {% else %}
+      <span class="small dim">—</span>
+    {% endif %}
+  </td>
+</tr>

@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block title %}Finance periods · Aimia Expenses{% endblock %}
+{% block content %}
+<p class="kicker">Finance</p>
+<h1>Claim periods</h1>
+<p class="lede">Open or close claim windows for cash and card. Claimants only see open periods in the nav.</p>
+
+<div id="msg" class="hint"></div>
+
+<div class="box" style="margin-bottom:24px">
+  <h3>Add period</h3>
+  <form id="create-period-form" class="filters" onsubmit="createPeriod(event)">
+    <label>Year<input type="number" id="p-year" min="2020" max="2100" required></label>
+    <label>Month<input type="number" id="p-month" min="1" max="12" required></label>
+    <label>Type
+      <select id="p-type" required>
+        <option value="cash">cash</option>
+        <option value="card">card</option>
+      </select>
+    </label>
+    <label>Deadline<input type="date" id="p-deadline" required></label>
+    <button type="submit" class="btn primary sm">Create period</button>
+  </form>
+</div>
+
+<div class="scroll-x approval-table-wrap">
+  <table class="ledger stack-cards">
+    <thead>
+      <tr>
+        <th>Period</th>
+        <th>Type</th>
+        <th>Deadline</th>
+        <th>Status</th>
+        <th>Action</th>
+      </tr>
+    </thead>
+    <tbody id="period-rows">
+      <tr><td colspan="5">Loading periods...</td></tr>
+    </tbody>
+  </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const msg = document.getElementById("msg");
+const rowsNode = document.getElementById("period-rows");
+
+function setMsg(text, type = "") {
+  msg.textContent = text;
+  msg.className = `hint ${type}`.trim();
+}
+
+function rowHtml(p) {
+  const status = p.is_open
+    ? `<span class="pill approved">Open</span>`
+    : `<span class="pill rejected">Closed</span>`;
+  const action = p.is_open
+    ? `<button type="button" class="btn reject sm" onclick="togglePeriod(${p.id})">Close</button>`
+    : `<button type="button" class="btn approve sm" onclick="togglePeriod(${p.id})">Open</button>`;
+  return `
+    <tr>
+      <td data-l="Period">${p.label}</td>
+      <td data-l="Type">${p.type}</td>
+      <td data-l="Deadline">${p.deadline}</td>
+      <td data-l="Status">${status}</td>
+      <td data-l="Action">${action}</td>
+    </tr>`;
+}
+
+async function loadPeriods() {
+  setMsg("Loading periods...");
+  try {
+    const r = await fetch("/finance/periods/data");
+    const d = await r.json();
+    if (!r.ok || !d.ok) {
+      setMsg("Unable to load periods.", "err");
+      return;
+    }
+    rowsNode.innerHTML = d.periods.length
+      ? d.periods.map(rowHtml).join("")
+      : "<tr><td colspan='5'>No periods yet.</td></tr>";
+    setMsg(`Loaded ${d.periods.length} period(s).`, "ok");
+  } catch (e) {
+    setMsg("Network error.", "err");
+  }
+}
+
+async function togglePeriod(id) {
+  try {
+    const r = await fetch(`/finance/periods/${id}/toggle`, { method: "POST" });
+    const d = await r.json();
+    if (!r.ok || !d.ok) {
+      setMsg(d.detail || "Unable to update period.", "err");
+      return;
+    }
+    setMsg(`Period ${id} is now ${d.is_open ? "open" : "closed"}.`, "ok");
+    await loadPeriods();
+  } catch (e) {
+    setMsg("Network error.", "err");
+  }
+}
+
+async function createPeriod(event) {
+  event.preventDefault();
+  const fd = new FormData();
+  fd.append("year", document.getElementById("p-year").value);
+  fd.append("month", document.getElementById("p-month").value);
+  fd.append("claim_type", document.getElementById("p-type").value);
+  fd.append("deadline", document.getElementById("p-deadline").value);
+  try {
+    const r = await fetch("/finance/periods", { method: "POST", body: fd });
+    const d = await r.json();
+    if (!r.ok || !d.ok) {
+      setMsg(d.detail || "Unable to create period.", "err");
+      return;
+    }
+    setMsg(`Created ${d.period.label} (${d.period.type}).`, "ok");
+    document.getElementById("create-period-form").reset();
+    await loadPeriods();
+  } catch (e) {
+    setMsg("Network error.", "err");
+  }
+}
+
+const today = new Date();
+document.getElementById("p-year").value = today.getFullYear();
+document.getElementById("p-month").value = today.getMonth() + 1;
+loadPeriods();
+</script>
+{% endblock %}

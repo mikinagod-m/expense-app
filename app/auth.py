@@ -48,6 +48,13 @@ def require_finance(request: Request) -> User:
     raise HTTPException(status_code=403, detail="Finance role required")
 
 
+def require_admin(request: Request) -> User:
+    user = require_user(request)
+    if user.is_admin:
+        return user
+    raise HTTPException(status_code=403, detail="Admin role required")
+
+
 # --- Azure AD OIDC (used when DEV_LOGIN=0) ---
 def missing_aad_settings() -> list[str]:
     missing = []

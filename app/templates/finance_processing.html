@@ -1,8 +1,9 @@
 {% extends "base.html" %}
+{% block title %}Finance processing · Aimia Expenses{% endblock %}
 {% block content %}
-<a href="/">&larr; back</a>
-<h1>Finance processing queue</h1>
-<p>Process approved claims and move them to the final processed state.</p>
+<p class="kicker">Finance</p>
+<h1>Processing queue</h1>
+<p class="lede">Review approved claims with full line detail before marking them processed.</p>
 
 <div id="msg" class="hint"></div>
 
@@ -17,7 +18,7 @@
       <option value="card">card</option>
     </select>
   </label>
-  <button onclick="applyFilters()">Apply filters</button>
+  <button type="button" class="btn primary sm" onclick="applyFilters()">Apply filters</button>
 </div>
 
 <div class="filters">
@@ -31,27 +32,36 @@
       <option value="draft">draft</option>
     </select>
   </label>
-  <button onclick="downloadCsv()">Download CSV</button>
-  <button onclick="downloadXlsx()">Download XLSX</button>
+  <button type="button" class="btn ghost sm" onclick="downloadCsv()">Download CSV</button>
+  <button type="button" class="btn ghost sm" onclick="downloadXlsx()">Download XLSX</button>
+  <button type="button" class="btn ghost sm" onclick="downloadPdf()">Download PDF</button>
 </div>
 
-<table id="approved-table">
-  <thead>
-    <tr>
-      <th>Claim ID</th>
-      <th>Reference</th>
-      <th>Claimant</th>
-      <th>Type</th>
-      <th>Period</th>
-      <th>Total</th>
-      <th>Action</th>
-    </tr>
-  </thead>
-  <tbody id="approved-rows">
-    <tr><td colspan="7">Loading approved claims...</td></tr>
-  </tbody>
-</table>
+<div class="scroll-x approval-table-wrap">
+  <table class="ledger approval-queue stack-cards" id="approved-table">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Detail</th>
+        <th>Receipt ref</th>
+        <th>Category</th>
+        <th>Type</th>
+        <th class="r">Amount</th>
+        <th>Submitted</th>
+        <th>Approved by</th>
+        <th class="c">Receipt</th>
+        <th>Action</th>
+      </tr>
+    </thead>
+    <tbody id="approved-rows">
+      <tr><td colspan="10">Loading approved claims...</td></tr>
+    </tbody>
+  </table>
+</div>
+{% endblock %}
 
+{% block scripts %}
+<script src="/static/claim-record-table.js"></script>
 <script>
 const financeMessageBox = document.getElementById("msg");
 const financeRowsNode = document.getElementById("approved-rows");
@@ -65,27 +75,6 @@ function setFinanceMessage(text, type = "") {
   financeMessageBox.className = `hint ${type}`.trim();
 }
 
-function financeCurrency(v) {
-  const n = Number(v || 0);
-  return `£${n.toFixed(2)}`;
-}
-
-function financeRowHtml(c) {
-  return `
-    <tr data-claim-id="${c.id}">
-      <td>${c.id}</td>
-      <td>${c.ref || "—"}</td>
-      <td>${c.claimant_name || `User ${c.user_id}`}</td>
-      <td>${c.type || "—"}</td>
-      <td>${c.period_label || c.period_id}</td>
-      <td>${financeCurrency(c.gross_total)}</td>
-      <td>
-        <button onclick="processClaim(${c.id})">Mark processed</button>
-      </td>
-    </tr>
-  `;
-}
-
 function filterQuery(extra = {}) {
   const params = new URLSearchParams({
     period: currentFilters.period || "all",
@@ -95,47 +84,78 @@ function filterQuery(extra = {}) {
   return params.toString();
 }
 
+function processActionHtml(claim) {
+  return `
+    <div class="approval-actions">
+      <a class="btn ghost sm" href="/finance/exports/claims/${claim.id}.pdf" target="_blank" rel="noopener">PDF</a>
+      <button type="button" class="btn primary sm" data-process="${claim.id}">Mark processed</button>
+    </div>`;
+}
+
+function bindProcessButtons() {
+  financeRowsNode.querySelectorAll("[data-process]").forEach((btn) => {
+    if (btn.dataset.bound === "1") return;
+    btn.addEventListener("click", () => processClaim(Number(btn.dataset.process)));
+    btn.dataset.bound = "1";
+  });
+  bindReceiptThumbButtons(financeRowsNode);
+}
+
 async function loadApproved() {
   setFinanceMessage("Loading approved queue...");
   try {
     const r = await fetch(`/finance/claims/approved?${filterQuery()}`);
     if (r.status === 401 || r.status === 403) {
       setFinanceMessage("Access denied. You need finance permissions.", "err");
-      financeRowsNode.innerHTML = "<tr><td colspan='7'>No access to finance queue.</td></tr>";
+      financeRowsNode.innerHTML = "<tr><td colspan='10'>No access to finance queue.</td></tr>";
       return;
     }
     const d = await r.json();
     if (!r.ok || d.ok === false) {
       setFinanceMessage("Unable to load approved claims.", "err");
-      financeRowsNode.innerHTML = "<tr><td colspan='7'>Failed to load queue.</td></tr>";
+      financeRowsNode.innerHTML = "<tr><td colspan='10'>Failed to load queue.</td></tr>";
       return;
     }
     if (!d.claims || d.claims.length === 0) {
       setFinanceMessage("No approved claims waiting for processing.", "ok");
-      financeRowsNode.innerHTML = "<tr><td colspan='7'>Queue is empty.</td></tr>";
+      financeRowsNode.innerHTML = "<tr><td colspan='10'>Queue is empty.</td></tr>";
       return;
     }
-    financeRowsNode.innerHTML = d.claims.map(financeRowHtml).join("");
-    setFinanceMessage(`Loaded ${d.claims.length} approved claim(s).`, "ok");
+    const rows = ClaimRecordTable.flattenClaims(d.claims);
+    financeRowsNode.innerHTML = rows.map((row) => ClaimRecordTable.renderRow(row, {
+      showApprovedBy: true,
+      showActions: true,
+      actionHtml: row.isFirst ? processActionHtml(row.claim) : null,
+    })).join("");
+    bindProcessButtons();
+    setFinanceMessage(`Loaded ${d.claims.length} approved claim(s), ${rows.length} line(s).`, "ok");
   } catch (e) {
     setFinanceMessage("Network error while loading finance queue.", "err");
-    financeRowsNode.innerHTML = "<tr><td colspan='7'>Network error.</td></tr>";
+    financeRowsNode.innerHTML = "<tr><td colspan='10'>Network error.</td></tr>";
   }
 }
 
 async function processClaim(claimId) {
+  document.querySelectorAll(`tr[data-claim-id="${claimId}"] [data-process]`).forEach((b) => {
+    b.disabled = true;
+  });
   try {
     const r = await fetch(`/finance/claims/${claimId}/process`, { method: "POST" });
     const d = await r.json();
     if (!r.ok || d.ok === false) {
-      const detail = d.detail || "Unable to process claim.";
-      setFinanceMessage(detail, "err");
+      setFinanceMessage(d.detail || "Unable to process claim.", "err");
+      document.querySelectorAll(`tr[data-claim-id="${claimId}"] [data-process]`).forEach((b) => {
+        b.disabled = false;
+      });
       return;
     }
     setFinanceMessage(`Claim ${claimId} marked processed.`, "ok");
     await loadApproved();
   } catch (e) {
     setFinanceMessage("Network error while processing claim.", "err");
+    document.querySelectorAll(`tr[data-claim-id="${claimId}"] [data-process]`).forEach((b) => {
+      b.disabled = false;
+    });
   }
 }
 
@@ -153,6 +173,11 @@ function downloadCsv() {
 function downloadXlsx() {
   const status = filterStatusExportNode.value || "all";
   window.location.href = `/finance/exports/lines.xlsx?${filterQuery({ status })}`;
+}
+
+function downloadPdf() {
+  const status = filterStatusExportNode.value || "all";
+  window.location.href = `/finance/exports/lines.pdf?${filterQuery({ status })}`;
 }
 
 loadApproved();

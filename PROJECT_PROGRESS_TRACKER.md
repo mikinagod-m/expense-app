@@ -1,13 +1,16 @@
 # Expense App - Progress Tracker
 
-Last updated: 2026-06-24
+Last updated: 2026-06-26
 
 ## Current Position
 
 - Project foundation and local runtime workflow are in place.
 - New UI shell (`aimia-expenses.html`) is now the default home page.
 - Phase 1 P0 is complete: `P0-01` through `P0-06` are done and verified.
-- Phase 2 planning board is created: `PHASE2_TASK_BOARD.md`.
+- Phase 2 board is complete: `P2-01` through `P2-12` are done and verified.
+- Phase 3 board is nearly complete: all P0/P1/P2 items done except `P3-04` (Azure AD production auth).
+- Smoke suite: **21 tests**, passing locally and in CI.
+- Pilot-ready on `DEV_LOGIN=1`; production login still requires `P3-04`.
 
 ## Completed (Done)
 
@@ -159,7 +162,7 @@ Last updated: 2026-06-24
   - Added finance override coverage:
     - finance user can decide claims outside manager scope via manager decision endpoint.
   - Kept all existing auth/role-path tests passing.
-  - Smoke suite now covers 9 tests total and remains green.
+  - Smoke suite expanded and remains green (now 21 tests).
 - [x] Phase 2 `P2-10` completed: CI smoke gate.
   - Added GitHub Actions workflow: `.github/workflows/smoke-tests.yml`.
   - Workflow runs smoke tests on every push and pull request.
@@ -174,42 +177,48 @@ Last updated: 2026-06-24
   - Added pilot-ready deployment checklist: `DEPLOYMENT_CHECKLIST.md`.
   - Added role-based UAT execution scripts and defect log template: `UAT_SCRIPT_PACK.md`.
   - Linked both docs from `README.md` for operator/tester discovery.
+- [x] Phase 3 `P3-01` completed: email notifications (SMTP optional, log-only fallback).
+- [x] Phase 3 `P3-02` completed: statement CSV import for card reconciliation.
+- [x] Phase 3 `P3-03` completed: finance period management UI (open/close periods).
+- [x] Phase 3 `P3-05` completed: reconciliation auto-match suggestions (date+amount; one-click accept).
+- [x] Phase 3 `RP-01` completed: roles & privileges admin UI at `/admin/users` with entitlement enforcement.
+- [x] Phase 3 `P3-06` completed: backup script (`scripts/backup.ps1`, `python -m app.backup`).
+- [x] Phase 3 `P3-07` completed: PDF exports for finance archive (period + single-claim).
+- [x] Phase 3 `P3-08` completed: nav badge counts for pending approvals / finance queue.
+- [x] `W-01` completed: rejected-claim edit and resubmit workflow.
+  - Claimants can edit `rejected` claims (lines, receipts, add lines) same as drafts.
+  - Rejection banner and timeline remain visible while editing; **Resubmit claim** button provided.
+  - Backend guards block edits on submitted/approved/processed claims.
+  - Starting a new claim for a period redirects to an existing rejected claim (same as draft).
+  - Smoke coverage: `test_rejected_claim_editable_and_resubmit`.
+- [x] `W-02` completed: per-line manager approval comments.
+  - Each line item in the manager approvals queue has its own comment field.
+  - On reject, at least one line comment is required; filled comments are aggregated for audit/notification.
+  - Approve/reject actions remain at claim level.
+  - Smoke coverage: `test_manager_rejection_aggregates_line_comments`.
 
-## In Progress
+## Pending
 
-- [ ] Ensure existing local DB rows are also anonymized (if seeded before name changes).
-  - Recommended: reset demo DB once to guarantee clean fictional data.
+- [ ] `P3-04` Azure AD production auth (document + smoke-test real tenant login; set `DEV_LOGIN=0`).
+- [ ] Pre-pilot DB backup confirmed (`.\scripts\backup.ps1` run and verified).
+- [ ] README / release docs kept in sync after each pilot milestone (ongoing).
 
-## Next Work (Where to Continue)
+## Next Work (Phase 3)
 
-Start here, in order:
+1. `P3-04` Azure AD production auth (after roles are configured for real users).
+2. Run UAT script pack (`UAT_SCRIPT_PACK.md`) with pilot users on `DEV_LOGIN=1`.
+3. Optional: branch protection requiring CI `Smoke Tests` status on GitHub.
 
-1. **Data reset checkpoint**
-   - Stop app, remove `data/expenses.db`, run `.\scripts\run-dev.ps1`.
-2. **Begin Phase 1 P0 implementation**
-   - P0 implementation complete.
-3. **Then move to**
-   - P1 backlog items.
+## Phase Status Snapshot
 
-Recommended next items:
-- Phase 2 board items are now complete.
-- Optional follow-up: tighten branch protection to require `Smoke Tests` status.
-
-## Phase 1 Board Status Snapshot
-
-| Track | Status |
+| Phase / track | Status |
 |---|---|
-| Project setup and dev UX | Done |
-| UI shell replacement | Done |
-| GDPR demo-name scrub (code/templates/seed) | Done |
-| P0 implementation work | Done (`P0-01` to `P0-06`) |
-| P0 QA sign-off | Done |
-| P1 smoke coverage | Done (`P1-03`) |
-| P1 duplicate receipt guardrails | Done (`P1-01`) |
-| P1 line-entry UX | Done (`P1-02`) |
-| P1 role/permission checks | Done (`P1-04`) |
-| P2 OCR confidence hints | Done (`P2-01`) |
-| P2 operations runbook | Done (`P2-02`) |
+| Phase 1 — capture + validation | Done |
+| Phase 2 — approvals + finance + exports | Done |
+| Phase 3 — operations (P3-01–P3-03, P3-05–P3-08, RP-01) | Done |
+| Phase 3 — Azure AD (`P3-04`) | Pending |
+| Post-board workflow (`W-01`, `W-02`) | Done |
+| Agency workflow + ops docs | Done |
 
 ## Quick Resume Commands
 

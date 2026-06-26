@@ -1,6 +1,8 @@
 {% extends "base.html" %}
+{% block title %}{{ title or "Access denied" }} · Aimia Expenses{% endblock %}
 {% block content %}
+<p class="kicker">Access</p>
 <h1>{{ title or "Access denied" }}</h1>
-<p>{{ message or "You do not have permission to access this page." }}</p>
-<p><a href="/">Return to dashboard</a></p>
+<p class="lede">{{ message or "You do not have permission to access this page." }}</p>
+<p><a href="/" class="btn ghost sm">Return to dashboard</a></p>
 {% endblock %}

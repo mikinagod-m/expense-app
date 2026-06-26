@@ -60,6 +60,7 @@ class User(Base):
     can_claim_cash: Mapped[bool] = mapped_column(Boolean, default=True)
     has_credit_card: Mapped[bool] = mapped_column(Boolean, default=False)
     is_finance: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
 
     manager: Mapped["User"] = relationship(remote_side=[id])
     claims: Mapped[list["Claim"]] = relationship(back_populates="user",
@@ -93,6 +94,7 @@ class Claim(Base):
 
     user: Mapped["User"] = relationship(back_populates="claims",
                                         foreign_keys=[user_id])
+    approver: Mapped["User | None"] = relationship(foreign_keys=[approved_by])
     period: Mapped["Period"] = relationship()
     lines: Mapped[list["ClaimLine"]] = relationship(
         back_populates="claim", cascade="all, delete-orphan")

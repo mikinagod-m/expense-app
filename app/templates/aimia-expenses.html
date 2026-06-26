@@ -42,6 +42,8 @@ button{font-family:inherit}
 .side-foot{margin-top:auto;display:flex;align-items:center;gap:10px;padding:12px;border-top:1px solid var(--line);color:var(--muted);font-size:13px}
 .av{width:32px;height:32px;border-radius:50%;background:var(--navy);color:#fff;display:grid;place-items:center;font-family:var(--serif);font-size:13px;font-weight:600;flex-shrink:0}
 .side-foot .who{line-height:1.25}.side-foot .who small{color:var(--dim);font-size:11px}
+.logout-link{margin-left:auto;font-size:12px;color:var(--navy);text-decoration:none;border:1px solid var(--line-2);border-radius:6px;padding:6px 10px;background:var(--panel)}
+.logout-link:hover{background:#fbfaf6}
 
 .main{min-width:0;display:flex;flex-direction:column}
 .topbar{display:none}
@@ -189,34 +191,38 @@ table.ledger{width:100%;border-collapse:collapse}
 <div class="app">
   <aside class="sidebar">
     <div class="brand"><span class="m">A</span><span><b>Aimia</b> Expenses</span></div>
-    <div class="roleswitch">
+    {% if not nav_can_manager and not nav_can_finance %}
+    <style>.roleswitch{display:none}</style>
+    {% endif %}
+    <div class="roleswitch" id="roleswitch-sidebar">
       <button data-role="claimant" class="on" onclick="setRole('claimant')">Claimant</button>
-      <button data-role="manager" onclick="setRole('manager')">Manager</button>
-      <button data-role="finance" onclick="setRole('finance')">Finance</button>
+      {% if nav_can_manager %}<button data-role="manager" onclick="goManager()">Manager</button>{% endif %}
+      {% if nav_can_finance %}<button data-role="finance" onclick="goFinance()">Finance</button>{% endif %}
     </div>
     <div class="role-hint" id="role-hint"></div>
     <div id="nav-links"></div>
-    <div class="side-foot"><span class="av" id="foot-av">AW</span><span class="who" id="foot-who"></span></div>
+    <div class="side-foot"><span class="av" id="foot-av">AW</span><span class="who" id="foot-who"></span><a href="/logout" class="logout-link">Log out</a></div>
   </aside>
   <div class="main">
     <div class="topbar">
       <div class="brand"><span class="m">A</span><b>Aimia</b></div>
-      <div class="roleswitch">
+      <a href="/logout" class="logout-link" style="margin-left:12px">Log out</a>
+      <div class="roleswitch" id="roleswitch-topbar">
         <button data-role="claimant" class="on" onclick="setRole('claimant')">Claim</button>
-        <button data-role="manager" onclick="setRole('manager')">Approve</button>
-        <button data-role="finance" onclick="setRole('finance')">Finance</button>
+        {% if nav_can_manager %}<button data-role="manager" onclick="goManager()">Approve</button>{% endif %}
+        {% if nav_can_finance %}<button data-role="finance" onclick="goFinance()">Finance</button>{% endif %}
       </div>
     </div>
     <div class="content">
 
       <section id="dash" class="view on">
-        <p class="kicker">Overview</p><h1>Good afternoon, Jordan.</h1>
-        <p class="lede">Here's where your expenses stand this month. Two periods are open for new claims.</p>
+        <p class="kicker">Overview</p><h1 id="dash-greeting">Overview</h1>
+        <p class="lede" id="dash-lede"></p>
         <div class="grid-stats">
-          <div class="scard"><div class="n navy">£412.66</div><div class="l">Claimed this month</div><div class="sub">across 4 claims</div></div>
-          <div class="scard"><div class="n clay">£289.45</div><div class="l">Awaiting approval</div><div class="sub">1 claim with Morgan</div></div>
-          <div class="scard"><div class="n sage">£561.00</div><div class="l">Paid year to date</div><div class="sub">6 claims processed</div></div>
-          <div class="scard"><div class="n">6 Jul</div><div class="l">Next deadline</div><div class="sub">12 days away</div></div>
+          <div class="scard"><div class="n navy" id="stat-claimed">£0.00</div><div class="l">Claimed this month</div><div class="sub" id="stat-claimed-sub">across 0 claims</div></div>
+          <div class="scard"><div class="n clay" id="stat-awaiting">£0.00</div><div class="l">Awaiting approval</div><div class="sub" id="stat-awaiting-sub">Nothing waiting</div></div>
+          <div class="scard"><div class="n sage" id="stat-paid">£0.00</div><div class="l">Paid year to date</div><div class="sub" id="stat-paid-sub">0 claims processed</div></div>
+          <div class="scard"><div class="n" id="stat-deadline">—</div><div class="l">Next deadline</div><div class="sub" id="stat-deadline-sub">No open periods</div></div>
         </div>
         <div class="dash-row">
           <div class="box"><h3>Spend by category</h3><p class="hint">This financial year</p><div class="bars" id="catbars"></div></div>
@@ -228,10 +234,7 @@ table.ledger{width:100%;border-collapse:collapse}
         <p class="kicker">My claims</p><h1>Claims</h1>
         <p class="lede">Begin a new claim, or return to one below. Your work saves as you type.</p>
         <p class="sec-label">Start a claim</p>
-        <div class="starts">
-          <div class="start" tabindex="0" role="button" onclick="openClaim('cash')" onkeydown="if(event.key==='Enter')openClaim('cash')"><div class="t">Cash expenses</div><div class="m">June 2026</div><div class="d">Submit by 6 July 2026</div><div class="arr">→</div></div>
-          <div class="start" tabindex="0" role="button" onclick="openClaim('card')" onkeydown="if(event.key==='Enter')openClaim('card')"><div class="t">Credit card · Barclaycard</div><div class="m">June 2026</div><div class="d">Submit by 6 July 2026</div><div class="arr">→</div></div>
-        </div>
+        <div class="starts" id="period-starts"></div>
         <p class="sec-label">History</p>
         <table class="ledger stack-cards"><thead><tr><th>Reference</th><th>Type</th><th>Period</th><th>Status</th><th class="r">Total</th></tr></thead><tbody id="claimrows"></tbody></table>
       </section>
@@ -337,126 +340,94 @@ table.ledger{width:100%;border-collapse:collapse}
 <div class="toast" id="toast"></div>
 
 <script>
-const CATS=[["subsistence","Subsistence"],["travel","Travel"],["hotel","Hotel"],["foreign_travel","Foreign travel"],["postage","Postage"],["staff_entertaining","Staff entertaining"],["customer_entertaining","Customer entertaining"],["other","Other"],["personal","Personal (deduction)"]];
-const NAVS={
-  claimant:[["dash","◧","Dashboard"],["claims","▤","My claims"],["__sep","Open periods"],["__cash","◆","Cash · Jun 2026"],["__card","▣","Card · Jun 2026"]],
-  manager:[["approvals","✓","Approvals","badge3"]],
-  finance:[["findash","◧","Overview"],["processing","▤","Processing","badge5"],["reconcile","⇄","Reconciliation","badge2"],["freports","⤓","Reports & export"]]
-};
-const ROLE_META={
-  claimant:{av:"JB",who:"Jordan Blake",mail:"jordan.blake@example.com",hint:"Viewing as Jordan Blake — submits demo expense claims."},
-  manager:{av:"MH",who:"Morgan Hale",mail:"morgan.hale@example.com",hint:"Viewing as a manager — approves claims from direct reports."},
-  finance:{av:"MH",who:"Morgan Hale",mail:"finance@example.com",hint:"Viewing as Finance — processes, reconciles and pays all claims."}
-};
+const LIVE = {{ dashboard_json | tojson }};
+const CAN_MANAGER = {{ nav_can_manager | tojson }};
+const CAN_FINANCE = {{ nav_can_finance | tojson }};
+const STATUS=[["draft","Draft","#9a7b1e"],["submitted","Submitted","#a85a3c"],["approved","Approved","#5f7a5b"],["processed","Processed","#9c9b92"],["rejected","Rejected","#9d3a3a"]];
 let ROLE="claimant";
 
-const CLAIMS=[
-  {ref:"draft",type:"Cash",period:"2026-06",pl:"June 2026",status:"draft",total:64.20},
-  {ref:"2026050118",type:"Card",period:"2026-05",pl:"May 2026",status:"submitted",total:289.45},
-  {ref:"2026050094",type:"Cash",period:"2026-05",pl:"May 2026",status:"approved",total:58.90},
-  {ref:"2026040061",type:"Card",period:"2026-04",pl:"April 2026",status:"processed",total:503.10},
-];
-const CAT_SPEND=[["Travel",312.40],["Subsistence",188.20],["Hotel",178.00],["Customer entertaining",96.50],["Postage",24.80],["Foreign travel",14.05]];
-const STATUS=[["draft","Draft","#9a7b1e"],["submitted","Submitted","#a85a3c"],["approved","Approved","#5f7a5b"],["processed","Processed","#9c9b92"]];
-const APPROVALS=[
-  {ref:"2026060131",claimant:"Jordan Blake",type:"Cash",period:"June 2026",lines:3,receipts:3,total:153.20,items:[{d:"Taxi — Skelmersdale to Liverpool",cat:"Travel",a:22.40,rc:true},{d:"Lunch with supplier",cat:"Subsistence",a:41.80,rc:true},{d:"Premier Inn — Manchester",cat:"Hotel",a:89.00,rc:true}]},
-  {ref:"2026060129",claimant:"Riley Stone",type:"Card",period:"June 2026",lines:4,receipts:3,total:241.05,items:[{d:"Fuel — BP Burscough",cat:"Travel",a:64.10,rc:true},{d:"Client dinner — San Carlo",cat:"Customer entertaining",a:128.40,rc:true},{d:"Stationery",cat:"Other",a:18.55,rc:false},{d:"Parking",cat:"Travel",a:30.00,rc:true}]},
-  {ref:"2026060127",claimant:"Casey Quinn",type:"Cash",period:"June 2026",lines:2,receipts:2,total:136.80,items:[{d:"Train — Wigan to London",cat:"Travel",a:118.30,rc:true},{d:"Coffee — meeting",cat:"Subsistence",a:18.50,rc:true}]},
-];
-const DECIDED=[{ref:"2026060118",claimant:"Jordan Blake",decision:"approved",when:"Yesterday 16:40",total:58.90},{ref:"2026060103",claimant:"Casey Quinn",decision:"approved",when:"Mon 09:12",total:74.10}];
-const PROCESSING=[
-  {ref:"2026060118",claimant:"Jordan Blake",type:"Cash",period:"2026-06",pl:"June 2026",vat:true,receipts:"3/3",status:"approved",total:58.90},
-  {ref:"2026060129",claimant:"Riley Stone",type:"Card",period:"2026-06",pl:"June 2026",vat:true,receipts:"3/4",status:"approved",total:241.05},
-  {ref:"2026060127",claimant:"Casey Quinn",type:"Cash",period:"2026-06",pl:"June 2026",vat:false,receipts:"2/2",status:"approved",total:136.80},
-  {ref:"2026060140",claimant:"Taylor Reed",type:"Card",period:"2026-06",pl:"June 2026",vat:true,receipts:"5/5",status:"approved",total:402.55},
-  {ref:"2026060142",claimant:"Jordan Blake",type:"Card",period:"2026-06",pl:"June 2026",vat:true,receipts:"4/4",status:"approved",total:365.00},
-];
-const RECON=[
-  {date:"03/06",holder:"Jordan Blake",merchant:"Premier Inn Manchester",stmt:89.00,claimed:"Hotel",claimedAmt:89.00,status:"matched"},
-  {date:"06/06",holder:"Jordan Blake",merchant:"BP Burscough",stmt:64.10,claimed:"Travel — fuel",claimedAmt:64.10,status:"matched"},
-  {date:"09/06",holder:"Riley Stone",merchant:"San Carlo Manchester",stmt:128.40,claimed:"Customer entertaining",claimedAmt:128.40,status:"matched"},
-  {date:"11/06",holder:"Riley Stone",merchant:"Amazon UK",stmt:43.20,claimed:"—",claimedAmt:0,status:"unmatched"},
-  {date:"14/06",holder:"Jordan Blake",merchant:"Trainline",stmt:118.30,claimed:"—",claimedAmt:0,status:"unmatched"},
-  {date:"15/06",holder:"Riley Stone",merchant:"(no statement line)",stmt:0,claimed:"Stationery",claimedAmt:18.55,status:"missing"},
-];
-const FLINES=[
-  {date:"2026-06-03",claimant:"Jordan Blake",ref:"2026060118",detail:"Taxi — Skelmersdale to Liverpool",cat:"Travel",net:18.67,vat:3.73,period:"2026-06",type:"cash",status:"approved"},
-  {date:"2026-06-05",claimant:"Jordan Blake",ref:"2026060118",detail:"Lunch with supplier",cat:"Subsistence",net:34.83,vat:6.97,period:"2026-06",type:"cash",status:"approved"},
-  {date:"2026-06-09",claimant:"Riley Stone",ref:"2026060129",detail:"Client dinner — San Carlo",cat:"Customer entertaining",net:107.00,vat:21.40,period:"2026-06",type:"card",status:"approved"},
-  {date:"2026-06-06",claimant:"Riley Stone",ref:"2026060129",detail:"Fuel — BP Burscough",cat:"Travel",net:53.42,vat:10.68,period:"2026-06",type:"card",status:"approved"},
-  {date:"2026-06-12",claimant:"Taylor Reed",ref:"2026060140",detail:"Hotel — London",cat:"Hotel",net:215.00,vat:43.00,period:"2026-06",type:"card",status:"approved"},
-  {date:"2026-06-14",claimant:"Jordan Blake",ref:"2026060142",detail:"Train — Wigan to London",cat:"Travel",net:98.58,vat:19.72,period:"2026-06",type:"card",status:"approved"},
-];
-
+function claimantNav(){
+  const items=[["dash","◧","Dashboard"],["claims","▤","My claims"],["__sep","Open periods"]];
+  LIVE.openPeriods.forEach(p=>items.push([`__period_${p.id}`,p.type==="card"?"▣":"◆",p.navLabel]));
+  return items;
+}
+function goManager(){ if(CAN_MANAGER) window.location.href="/manager/approvals"; }
+function goFinance(){ if(CAN_FINANCE) window.location.href="/finance/processing"; }
+function applyLiveDashboard(){
+  const s=LIVE.stats;
+  document.getElementById("dash-greeting").textContent=LIVE.greeting;
+  document.getElementById("dash-lede").textContent=LIVE.lede;
+  document.getElementById("stat-claimed").textContent="£"+s.claimedMonth.toFixed(2);
+  document.getElementById("stat-claimed-sub").textContent=`across ${s.claimsMonthCount} claim${s.claimsMonthCount===1?"":"s"}`;
+  document.getElementById("stat-awaiting").textContent="£"+s.awaitingTotal.toFixed(2);
+  document.getElementById("stat-awaiting-sub").textContent=s.awaitingSub;
+  document.getElementById("stat-paid").textContent="£"+s.paidYtd.toFixed(2);
+  document.getElementById("stat-paid-sub").textContent=`${s.paidYtdCount} claim${s.paidYtdCount===1?"":"s"} processed`;
+  document.getElementById("stat-deadline").textContent=s.deadlineMain;
+  document.getElementById("stat-deadline-sub").textContent=s.deadlineSub;
+}
+function renderPeriodStarts(){
+  const el=document.getElementById("period-starts");
+  if(!LIVE.openPeriods.length){
+    el.innerHTML=`<div class="start" style="cursor:default"><div class="t">No open periods</div><div class="m">Check back later</div><div class="d">Finance will open the next claim window.</div></div>`;
+    return;
+  }
+  el.innerHTML=LIVE.openPeriods.map(p=>`<div class="start" tabindex="0" role="button" onclick="startClaim(${p.id})" onkeydown="if(event.key==='Enter')startClaim(${p.id})"><div class="t">${p.startSubtitle}</div><div class="m">${p.startTitle}</div><div class="d">Submit by ${p.deadlineLabel}</div><div class="arr">→</div></div>`).join("");
+}
+function startClaim(periodId){
+  const f=document.createElement("form");
+  f.method="POST"; f.action="/claims/new";
+  const inp=document.createElement("input");
+  inp.type="hidden"; inp.name="period_id"; inp.value=String(periodId);
+  f.appendChild(inp); document.body.appendChild(f); f.submit();
+}
+function openClaimById(id){ window.location.href=`/claims/${id}`; }
 function setRole(r){
-  ROLE=r;document.querySelectorAll(".roleswitch button").forEach(b=>b.classList.toggle("on",b.dataset.role===r));
-  const m=ROLE_META[r];document.getElementById("role-hint").textContent=m.hint;
-  document.getElementById("foot-av").textContent=m.av;document.getElementById("foot-who").innerHTML=`${m.who}<br><small>${m.mail}</small>`;
-  document.getElementById("nav-links").innerHTML=NAVS[r].map(n=>{
+  if(r!=="claimant") return;
+  ROLE=r;
+  document.querySelectorAll(".roleswitch button[data-role='claimant']").forEach(b=>b.classList.add("on"));
+  document.querySelectorAll(".roleswitch button[data-role='manager'], .roleswitch button[data-role='finance']").forEach(b=>b.classList.remove("on"));
+  const m=LIVE.user;
+  document.getElementById("role-hint").textContent=`Signed in as ${m.name}`;
+  document.getElementById("foot-av").textContent=m.initials;
+  document.getElementById("foot-who").innerHTML=`${m.name}<br><small>${m.email}</small>`;
+  const navItems=claimantNav();
+  document.getElementById("nav-links").innerHTML=navItems.map(n=>{
     if(n[0]==="__sep")return `<div class="nav-sep">${n[1]}</div>`;
-    if(n[0]==="__cash")return `<div class="nav-item" onclick="openClaim('cash')"><span class="i">${n[1]}</span>${n[2]}</div>`;
-    if(n[0]==="__card")return `<div class="nav-item" onclick="openClaim('card')"><span class="i">${n[1]}</span>${n[2]}</div>`;
-    const b=n[3]?`<span class="badge">${n[3].replace('badge','')}</span>`:'';
-    return `<div class="nav-item" data-nav="${n[0]}" onclick="nav('${n[0]}')"><span class="i">${n[1]}</span>${n[2]}${b}</div>`;}).join("");
-  document.getElementById("tabbar").innerHTML=NAVS[r].filter(n=>!n[0].startsWith("__")).map(n=>{
-    const b=n[3]?`<span class="badge">${n[3].replace('badge','')}</span>`:'';
-    return `<button class="tab" data-nav="${n[0]}" onclick="nav('${n[0]}')"><span class="ti">${n[1]}</span>${n[2]}${b}</button>`;}).join("");
-  nav(NAVS[r].find(n=>!n[0].startsWith("__"))[0]);
+    if(n[0].startsWith("__period_")){const pid=n[0].replace("__period_","");return `<div class="nav-item" onclick="startClaim(${pid})"><span class="i">${n[1]}</span>${n[2]}</div>`;}
+    const b=n[3]?`<span class="badge">${n[3].replace("badge","")}</span>`:"";
+    return `<div class="nav-item" data-nav="${n[0]}" onclick="nav('${n[0]}')"><span class="i">${n[1]}</span>${n[2]}${b}</div>`;
+  }).join("");
+  document.getElementById("tabbar").innerHTML=navItems.filter(n=>!n[0].startsWith("__")).map(n=>{
+    const b=n[3]?`<span class="badge">${n[3].replace("badge","")}</span>`:"";
+    return `<button class="tab" data-nav="${n[0]}" onclick="nav('${n[0]}')"><span class="ti">${n[1]}</span>${n[2]}${b}</button>`;
+  }).join("");
+  nav(navItems.find(n=>!n[0].startsWith("__"))[0]);
 }
 function nav(v){document.querySelectorAll(".view").forEach(x=>x.classList.remove("on"));const el=document.getElementById(v);if(el)el.classList.add("on");document.querySelectorAll("[data-nav]").forEach(n=>n.classList.toggle("on",n.dataset.nav===v));window.scrollTo(0,0);}
 
 function renderDash(){
-  const max=Math.max(...CAT_SPEND.map(c=>c[1]));
-  const bars=CAT_SPEND.map(([c,v])=>`<div class="bar"><span class="cap">${c}</span><span class="track"><span class="fill" data-w="${(v/max*100).toFixed(1)}"></span></span><span class="val">£${v.toFixed(2)}</span></div>`).join("");
-  document.getElementById("catbars").innerHTML=bars;document.getElementById("fcatbars").innerHTML=bars;
-  requestAnimationFrame(()=>document.querySelectorAll(".fill").forEach(f=>f.style.width=f.dataset.w+"%"));
-  donut("donut","legend",STATUS.map(([k,l,c])=>[l,c,CLAIMS.filter(x=>x.status===k).length]));
-  donut("fdonut","flegend",[["Cash","#5f7a5b",2],["Card","#1f3a5f",3]]);
+  const cat=LIVE.catSpend.length?LIVE.catSpend:[["No spend yet",0]];
+  const max=Math.max(...cat.map(c=>c[1]),1);
+  const bars=cat.map(([c,v])=>`<div class="bar"><span class="cap">${c}</span><span class="track"><span class="fill" data-w="${(v/max*100).toFixed(1)}"></span></span><span class="val">£${v.toFixed(2)}</span></div>`).join("");
+  document.getElementById("catbars").innerHTML=bars;
+  requestAnimationFrame(()=>document.querySelectorAll("#catbars .fill").forEach(f=>f.style.width=f.dataset.w+"%"));
+  donut("donut","legend",STATUS.map(([k,l,c])=>[l,c,LIVE.statusCounts[k]||0]));
 }
 function donut(svgId,legId,counts){const tot=counts.reduce((a,c)=>a+c[2],0)||1;let off=0;
   const seg=counts.filter(c=>c[2]>0).map(([l,col,n])=>{const len=n/tot*100;const s=`<circle cx="21" cy="21" r="15.915" fill="transparent" stroke="${col}" stroke-width="6" stroke-dasharray="${len} ${100-len}" stroke-dashoffset="${25-off}"></circle>`;off+=len;return s;}).join("");
   document.getElementById(svgId).innerHTML=`<circle cx="21" cy="21" r="15.915" fill="transparent" stroke="#f0eee6" stroke-width="6"></circle>${seg}`;
   document.getElementById(legId).innerHTML=counts.map(([l,col,n])=>`<div class="li"><span class="sw" style="background:${col}"></span>${l}<b>${n}</b></div>`).join("");}
-function renderClaims(){document.getElementById("claimrows").innerHTML=CLAIMS.map(c=>{const r=c.ref==='draft'?`<span class="ref dr">Draft</span>`:`<span class="ref">${c.ref}</span>`;return `<tr class="clickable" onclick="openClaim('demo')"><td data-l="Reference">${r}</td><td data-l="Type">${c.type}</td><td data-l="Period">${c.pl}</td><td data-l="Status"><span class="pill ${c.status}">${c.status}</span></td><td class="amt r" data-l="Total">£${c.total.toFixed(2)}</td></tr>`;}).join("");}
-
-const SEED=[{date:"2026-06-03",det:"Taxi — Skelmersdale to Liverpool",cat:"travel",amount:"22.40",vat:true,ocr:"OCR ✓ 03/06 · £22.40"},{date:"2026-06-05",det:"Lunch with supplier",cat:"subsistence",amount:"41.80",vat:false,ocr:"OCR ✓ Greggs · £41.80"}];
-let id=0;
-function lh(d={}){const i=++id;const o=CATS.map(([v,l])=>`<option value="${v}" ${d.cat===v?'selected':''}>${l}</option>`).join("");const clip=d.ocr?`<span class="stamp">${d.ocr}</span>`:`<button class="upl" onclick="ocr(this)">Add receipt</button>`;return `<div class="line" data-id="${i}"><input type="date" name="date" value="${d.date||''}" onchange="rc()"><input type="text" name="detail" placeholder="What was it for?" value="${d.det||''}"><select name="category">${o}</select><input type="number" step="0.01" name="amount" placeholder="0.00" value="${d.amount||''}" oninput="rc()"><button class="rm" onclick="rm(this)">×</button><div class="meta"><label class="chk"><input type="checkbox" name="vat" ${d.vat?'checked':''} onchange="rc()">Reclaim VAT</label>${clip}</div></div>`;}
-function addLine(d){document.getElementById("lines").insertAdjacentHTML("beforeend",lh(d));rc();}
-function rm(b){b.closest(".line").remove();rc();}
-function ocr(b){const l=b.closest(".line");b.textContent="reading…";b.disabled=true;setTimeout(()=>{if(!l.querySelector("[name=date]").value)l.querySelector("[name=date]").value="2026-06-12";if(!l.querySelector("[name=detail]").value)l.querySelector("[name=detail]").value="Premier Inn — Manchester";l.querySelector("[name=amount]").value="89.00";b.outerHTML='<span class="stamp">OCR ✓ Premier Inn · £89.00</span>';rc();toast("Pre-filled from receipt — please check");},650);}
-function rc(){const L=[...document.querySelectorAll(".line")];let tot=0,r=0,v=0;L.forEach(l=>{tot+=parseFloat(l.querySelector("[name=amount]").value||0)||0;if(l.querySelector(".stamp"))r++;if(l.querySelector("[name=vat]").checked)v++;});set("s-n",L.length);set("s-r",r);set("s-v",v);const g=document.getElementById("gross");g.textContent="£"+tot.toFixed(2);g.classList.remove("tick");void g.offsetWidth;g.classList.add("tick");document.getElementById("pb").innerHTML="";}
-function set(i,v){document.getElementById(i).textContent=v;}
-function openClaim(w){const ln=document.getElementById("lines");ln.innerHTML="";id=0;const eb=document.getElementById("c-eb"),tt=document.getElementById("c-tt");if(w==='demo'){eb.textContent="Cash · June 2026";tt.textContent="Claim (draft)";SEED.forEach(addLine);addLine();}else{eb.textContent=(w==='card'?"Credit card · Barclaycard":"Cash")+" · June 2026";tt.textContent="New claim";addLine();}rc();nav('builder');}
-function submitClaim(){const L=[...document.querySelectorAll(".line")];const p=[];if(!L.length)p.push("Add at least one line.");L.forEach((l,i)=>{const a=parseFloat(l.querySelector("[name=amount]").value||0)||0;if(a>0&&!l.querySelector(".stamp"))p.push(`Line ${i+1}: add a receipt or reference.`);});const b=document.getElementById("pb");if(p.length){b.innerHTML=`<p class="e">Fix before submitting</p><ul>${p.map(x=>`<li>${x}</li>`).join("")}</ul>`;return;}const ref=`2026060${String(120+Math.floor(Math.random()*80)).padStart(4,'0').slice(-4)}`;b.innerHTML=`<div class="ok">✓ Submitted — reference ${ref}. Sent to Morgan Hale for approval.</div>`;toast("Submitted · "+ref);}
-
-function renderApprovals(){
-  document.getElementById("approvalrows").innerHTML=APPROVALS.length?APPROVALS.map((a,i)=>{const rc=a.receipts<a.lines?`<span class="pill submitted">${a.receipts}/${a.lines}</span>`:`<span class="small">${a.receipts}/${a.lines}</span>`;return `<tr class="clickable" onclick="openReview(${i})"><td data-l="Claimant"><b>${a.claimant}</b></td><td data-l="Ref"><span class="ref">${a.ref}</span></td><td data-l="Type">${a.type}</td><td data-l="Period">${a.period}</td><td class="c" data-l="Lines">${a.lines}</td><td class="c" data-l="Receipts">${rc}</td><td class="amt r" data-l="Total">£${a.total.toFixed(2)}</td><td class="r"><button class="btn primary sm" onclick="event.stopPropagation();openReview(${i})">Review</button></td></tr>`;}).join(""):`<tr><td colspan="8" style="text-align:center;color:var(--dim);padding:30px">Queue clear — nothing waiting on you.</td></tr>`;
-  document.getElementById("decidedrows").innerHTML=DECIDED.map(d=>`<tr><td data-l="Claimant">${d.claimant}</td><td data-l="Ref"><span class="ref">${d.ref}</span></td><td data-l="Decision"><span class="pill ${d.decision}">${d.decision}</span></td><td data-l="When" class="small">${d.when}</td><td class="amt r" data-l="Total">£${d.total.toFixed(2)}</td></tr>`).join("");
+function renderClaims(){
+  const rows=LIVE.claims;
+  document.getElementById("claimrows").innerHTML=rows.length?rows.map(c=>{
+    const r=c.ref==="draft"?`<span class="ref dr">Draft</span>`:`<span class="ref">${c.ref}</span>`;
+    return `<tr class="clickable" onclick="openClaimById(${c.id})"><td data-l="Reference">${r}</td><td data-l="Type">${c.type}</td><td data-l="Period">${c.pl}</td><td data-l="Status"><span class="pill ${c.status}">${c.status}</span></td><td class="amt r" data-l="Total">£${c.total.toFixed(2)}</td></tr>`;
+  }).join(""):`<tr><td colspan="5" style="text-align:center;color:var(--dim);padding:30px">No claims yet — start one above.</td></tr>`;
 }
-let reviewIdx=null;
-function openReview(i){reviewIdx=i;const a=APPROVALS[i];
-  document.getElementById("dr-eb").textContent="Approval · "+a.period;document.getElementById("dr-title").textContent=a.claimant;
-  document.getElementById("dr-meta").innerHTML=`${a.type} claim <span class="ref">${a.ref}</span> · ${a.lines} lines · <b style="color:var(--ink);font-family:var(--mono)">£${a.total.toFixed(2)}</b>`;
-  document.getElementById("dr-body").innerHTML=a.items.map(it=>`<div class="rev-line"><div><div class="d">${it.d}</div><div class="meta">${it.cat}</div></div><div class="a">£${it.a.toFixed(2)}</div><div class="rc">${it.rc?`<span class="thumb">🧾</span> Receipt attached · OCR confirmed`:`<span class="thumb" style="color:var(--clay)">!</span> <span style="color:var(--clay)">No receipt attached</span>`}</div></div>`).join("")+`<label style="display:block;margin-top:18px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);font-weight:600">Comment (sent to claimant)</label><textarea class="cmt" id="dr-comment" placeholder="Optional — required if rejecting"></textarea>`;
-  document.getElementById("scrim").classList.add("on");document.getElementById("drawer").classList.add("on");}
-function closeDrawer(){document.getElementById("scrim").classList.remove("on");document.getElementById("drawer").classList.remove("on");}
-function decide(d){const a=APPROVALS[reviewIdx];const c=document.getElementById("dr-comment").value.trim();if(d==='rejected'&&!c){toast("Add a comment so the claimant knows what to fix");return;}APPROVALS.splice(reviewIdx,1);DECIDED.unshift({ref:a.ref,claimant:a.claimant,decision:d,when:"Just now",total:a.total});document.getElementById("m-pending").textContent=APPROVALS.length;document.getElementById("m-value").textContent="£"+APPROVALS.reduce((s,x)=>s+x.total,0).toFixed(2);renderApprovals();closeDrawer();toast(`${a.ref} ${d} → ${a.claimant}`);}
-
-function fProc(){const p=document.getElementById("fp-period").value,t=document.getElementById("fp-type").value,c=document.getElementById("fp-claimant").value;return PROCESSING.filter(x=>x.status==='approved').filter(x=>p==='all'||x.period===p).filter(x=>t==='all'||x.type.toLowerCase()===t).filter(x=>c==='all'||x.claimant===c);}
-function renderProcessing(){const rows=fProc();const tot=rows.reduce((a,c)=>a+c.total,0);document.getElementById("pq-count").textContent=rows.length;document.getElementById("pq-total").textContent="£"+tot.toFixed(2);document.getElementById("processingrows").innerHTML=rows.length?rows.map(r=>{const recOk=r.receipts.split('/')[0]===r.receipts.split('/')[1];return `<tr><td data-l="Claimant"><b>${r.claimant}</b></td><td data-l="Ref"><span class="ref">${r.ref}</span></td><td data-l="Type">${r.type}</td><td data-l="Period">${r.pl}</td><td class="c" data-l="VAT">${r.vat?'<span class="flag-vat">VAT</span>':'—'}</td><td class="c" data-l="Receipts"><span class="small" style="color:${recOk?'var(--sage)':'var(--clay)'}">${r.receipts}</span></td><td data-l="Status"><span class="pill ${r.status}">${r.status}</span></td><td class="amt r" data-l="Total">£${r.total.toFixed(2)}</td><td class="r"><button class="btn ghost sm" onclick="markProcessed('${r.ref}')">Mark processed</button></td></tr>`;}).join(""):`<tr><td colspan="9" style="text-align:center;color:var(--dim);padding:30px">Nothing to process for these filters.</td></tr>`;}
-function markProcessed(ref){const i=PROCESSING.findIndex(x=>x.ref===ref);if(i>=0)PROCESSING[i].status='processed';renderProcessing();document.getElementById("f-toprocess").textContent=PROCESSING.filter(x=>x.status==='approved').length;toast(ref+" marked processed");}
-function markAllProcessed(){fProc().forEach(r=>{const i=PROCESSING.findIndex(x=>x.ref===r.ref);if(i>=0)PROCESSING[i].status='processed';});renderProcessing();document.getElementById("f-toprocess").textContent=PROCESSING.filter(x=>x.status==='approved').length;toast("Visible claims marked processed");}
-
-function renderRecon(){const h=document.getElementById("rc-holder").value,f=document.getElementById("rc-filter").value;const rows=RECON.filter(r=>h==='all'||r.holder===h).filter(r=>f==='all'||r.status!=='matched');document.getElementById("reconrows").innerHTML=rows.map(r=>`<tr><td data-l="Date" class="small">${r.date}</td><td data-l="Cardholder">${r.holder}</td><td data-l="Merchant">${r.merchant}</td><td class="amt r" data-l="Statement">${r.stmt?'£'+r.stmt.toFixed(2):'—'}</td><td data-l="Claimed as" class="small">${r.claimed}</td><td class="amt r" data-l="Claimed">${r.claimedAmt?'£'+r.claimedAmt.toFixed(2):'—'}</td><td data-l="Status"><span class="pill ${r.status}">${r.status}</span></td></tr>`).join("");}
-
-function fFilt(){const p=document.getElementById("fr-period").value,t=document.getElementById("fr-type").value,s=document.getElementById("fr-status").value;return FLINES.filter(l=>p==='all'||l.period===p).filter(l=>t==='all'||l.type===t).filter(l=>s==='all'||l.status===s);}
-function renderFinanceReport(){const rows=fFilt();const net=rows.reduce((a,l)=>a+l.net,0),vat=rows.reduce((a,l)=>a+l.vat,0);document.getElementById("frr-lines").textContent=rows.length;document.getElementById("frr-total").textContent="£"+(net+vat).toFixed(2);document.getElementById("frr-vat").textContent="£"+vat.toFixed(2);document.getElementById("freportrows").innerHTML=rows.map(l=>`<tr><td class="small">${l.date}</td><td>${l.claimant}</td><td><span class="ref">${l.ref}</span></td><td>${l.detail}</td><td class="small">${l.cat}</td><td class="amt r">£${l.net.toFixed(2)}</td><td class="amt r">£${l.vat.toFixed(2)}</td><td class="amt r">£${(l.net+l.vat).toFixed(2)}</td></tr>`).join("");}
-function downloadFinanceCSV(kind){const rows=fFilt();if(!rows.length){toast("No lines match these filters");return;}const cols=CATS.filter(c=>c[0]!=='personal').map(c=>c[1]);const head=["Date","Claimant","Reference","Type","Detail",...cols,"Net","VAT","Gross","Status"];const body=rows.map(l=>{const catCells=cols.map(c=>c===l.cat?l.net.toFixed(2):"");return [l.date,l.claimant,l.ref,l.type,l.detail,...catCells,l.net.toFixed(2),l.vat.toFixed(2),(l.net+l.vat).toFixed(2),l.status];});const csv=[head,...body].map(r=>r.map(f=>`"${String(f).replace(/"/g,'""')}"`).join(",")).join("\r\n");const ext=kind==='xlsx'?'xls':'csv';const blob=new Blob([csv],{type:kind==='xlsx'?'application/vnd.ms-excel':'text/csv'});const url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download=`aimia-finance-lines-${Date.now()}.${ext}`;a.click();URL.revokeObjectURL(url);toast(`Exported ${rows.length} lines · ${ext.toUpperCase()}`);}
-function printFinancePDF(){const rows=fFilt();if(!rows.length){toast("No lines match");return;}const net=rows.reduce((a,l)=>a+l.net,0),vat=rows.reduce((a,l)=>a+l.vat,0);const w=window.open("","_blank");w.document.write(`<title>Aimia Finance report</title><style>body{font-family:Georgia,serif;padding:40px;color:#1a1a17}h1{font-size:24px}table{width:100%;border-collapse:collapse;margin-top:20px;font-family:ui-sans-serif,sans-serif;font-size:12px}th{text-align:left;border-bottom:2px solid #1a1a17;padding:7px;text-transform:uppercase;font-size:10px;letter-spacing:.08em}td{padding:8px 7px;border-bottom:1px solid #e7e5dd}.r{text-align:right;font-family:monospace}.tot{margin-top:18px;font-size:16px;font-weight:bold;text-align:right}</style><h1>Aimia Foods — Finance line report</h1><p>Generated ${new Date().toLocaleDateString('en-GB')} · ${rows.length} lines</p><table><thead><tr><th>Date</th><th>Claimant</th><th>Ref</th><th>Detail</th><th>Category</th><th class="r">Net</th><th class="r">VAT</th><th class="r">Gross</th></tr></thead><tbody>${rows.map(l=>`<tr><td>${l.date}</td><td>${l.claimant}</td><td>${l.ref}</td><td>${l.detail}</td><td>${l.cat}</td><td class="r">£${l.net.toFixed(2)}</td><td class="r">£${l.vat.toFixed(2)}</td><td class="r">£${(l.net+l.vat).toFixed(2)}</td></tr>`).join("")}</tbody></table><p class="tot">Net £${net.toFixed(2)} · VAT £${vat.toFixed(2)} · Gross £${(net+vat).toFixed(2)}</p>`);w.document.close();setTimeout(()=>w.print(),300);toast("Opening printable report");}
 
 let tT;function toast(m){const e=document.getElementById("toast");e.textContent=m;e.classList.add("show");clearTimeout(tT);tT=setTimeout(()=>e.classList.remove("show"),2600);}
 
-renderDash();renderClaims();renderApprovals();renderProcessing();renderRecon();renderFinanceReport();setRole('claimant');
+applyLiveDashboard(); renderDash(); renderClaims(); renderPeriodStarts(); setRole("claimant");
 </script>
 </body></html>

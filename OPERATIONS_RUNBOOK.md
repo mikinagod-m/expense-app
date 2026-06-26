@@ -131,9 +131,35 @@ Get-Content .\.runtime\uvicorn.err.log -Tail 100
 
 ### Backup (SQLite default)
 
-Database file: `data\expenses.db`
+Database file: `data\expenses.db`  
+Receipt files: `receipts\`
 
-Manual backup:
+Automated backup (recommended):
+
+```powershell
+.\scripts\backup.ps1
+```
+
+This creates a timestamped folder under `backups\` with:
+
+- SQLite database copy (when `DATABASE_URL` uses SQLite)
+- Full `receipts\` folder copy
+- `manifest.json` metadata
+
+Configure in `.env`:
+
+```env
+BACKUP_DIR=./backups
+BACKUP_RETENTION_DAYS=14
+```
+
+Schedule daily on the Windows server (Task Scheduler):
+
+1. Action: `powershell.exe`
+2. Arguments: `-NoProfile -ExecutionPolicy Bypass -File "C:\path\to\expense-app\scripts\backup.ps1"`
+3. Start in: `C:\path\to\expense-app`
+
+Manual one-off backup:
 
 ```powershell
 Copy-Item .\data\expenses.db ".\data\expenses-backup-$(Get-Date -Format yyyyMMdd-HHmmss).db"

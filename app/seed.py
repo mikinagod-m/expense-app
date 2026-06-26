@@ -6,14 +6,16 @@ import datetime as dt
 
 from .db import engine, SessionLocal
 from .models import Base, User, Period, ClaimType
+from .schema_upgrade import upgrade_schema
 
 
 def run():
     Base.metadata.create_all(engine)
+    upgrade_schema(engine)
     with SessionLocal() as db:
         if db.query(User).count() == 0:
             mgr = User(name="Morgan Hale", email="morgan.hale@example.com",
-                       is_finance=True)
+                       is_finance=True, is_admin=True)
             db.add(mgr)
             db.flush()
             db.add_all([

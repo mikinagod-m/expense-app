@@ -90,3 +90,13 @@ button.danger:hover { background: #a83838; }
   padding: 3px 8px;
   font-size: 11px;
 }
+
+.claim-rejection-notice {
+  background: #fff4f4;
+  border: 1px solid #e8b4b4;
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin: 0 0 16px;
+}
+.claim-rejection-notice strong { color: #8f2f2f; }
+.claim-rejection-notice p { margin: 6px 0 0; }

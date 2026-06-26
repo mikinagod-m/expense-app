@@ -3,19 +3,15 @@
 Internal web app to replace the manual cash + credit-card expense process.
 FastAPI + HTMX + SQLAlchemy. Runs behind your VPN on the Windows server.
 
-## What this v1 skeleton includes
+## What this app includes
 
-- **Auth**: Microsoft 365 / Azure AD login (OIDC). Stubbed so you can run
-  locally without Azure first — set `DEV_LOGIN=1` to skip real auth.
-- **Data model**: users, periods, claims, claim_lines, receipts, audit_log
-  (SQLAlchemy). Monthly rollover disappears — claims belong to a period.
-- **Receipt capture + OCR**: upload a receipt, Tesseract pre-fills
-  date/merchant/amount for the user to confirm. Fully local, nothing leaves
-  the VPN.
-- **HTMX UI**: server-rendered, no build step.
-
-This is Phase 1 (capture / data entry — your #1 pain). Approvals,
-reconciliation, and Excel export are stubbed as TODOs for later phases.
+- **Auth**: Microsoft 365 / Azure AD login (OIDC), with `DEV_LOGIN=1` for local/pilot use without Azure. Production login (`P3-04`) is the remaining auth task.
+- **Data model**: users, periods, claims, claim_lines, receipts, audit_log, statement_lines (SQLAlchemy). Claims belong to a period — no monthly file rollover.
+- **Receipt capture + OCR**: upload a receipt; Tesseract pre-fills date/merchant/amount locally (nothing leaves the VPN).
+- **HTMX UI**: server-rendered, no build step; Aimia shell dashboard at `/`.
+- **Workflow**: claimant submit → manager approve/reject (per-line comments) → claimant edit/resubmit if rejected → finance process.
+- **Finance**: CSV/XLSX/PDF exports, period management, card-statement reconciliation (import + auto-match).
+- **Admin**: user roles/privileges at `/admin/users`; email notifications when SMTP is configured.
 
 ## Prerequisites (Windows server)
 
@@ -70,6 +66,7 @@ For support/debug/recovery procedures, see:
 - `OPERATIONS_RUNBOOK.md`
 - `DEPLOYMENT_CHECKLIST.md`
 - `UAT_SCRIPT_PACK.md`
+- `ROLES_PRIVILEGES.md`
 - `RELEASE_READINESS_SUMMARY.md`
 
 ## Finance exports (P2-06)
@@ -78,6 +75,8 @@ Finance-only export endpoints (live DB data):
 
 - `GET /finance/exports/lines.csv`
 - `GET /finance/exports/lines.xlsx`
+- `GET /finance/exports/lines.pdf`
+- `GET /finance/exports/claims/{claim_id}.pdf`
 
 Supported query filters (applied consistently across both formats):
 

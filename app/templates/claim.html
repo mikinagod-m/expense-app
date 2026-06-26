@@ -1,61 +1,133 @@
 {% extends "base.html" %}
+{% block title %}{% if claim.unique_ref %}{{ claim.unique_ref }}{% else %}Your claim{% endif %} · Aimia Expenses{% endblock %}
 {% block content %}
-<a href="/">&larr; back</a>
-<h1>Claim {{ claim.unique_ref or "(draft)" }}</h1>
-<p>{{ claim.type.value|capitalize }} · {{ claim.period.month }}/{{ claim.period.year }}
-   · status: <strong id="status">{{ claim.status.value }}</strong></p>
+<button type="button" class="back" onclick="leaveClaim()">← My claims</button>
 
-<table id="lines">
-  <thead>
-    <tr>
-      <th>Date</th><th>Detail</th><th>Receipt ref</th><th>Category</th>
-      <th>Amount £</th><th>VAT?</th><th>Receipt</th>
-    </tr>
-  </thead>
-  <tbody id="line-rows">
-    {% for line in claim.lines %}
-      {% include "_line_row.html" %}
-    {% endfor %}
-  </tbody>
-</table>
+<div class="chead claim-chead">
+  <div class="claim-chead-main">
+    <p class="kicker">{% if is_editable %}Your claim{% else %}Claim{% endif %}</p>
+    <h1>{% if claim.unique_ref %}{{ claim.unique_ref }}{% else %}{{ claim_period_label }}{% endif %}</h1>
+    <p class="cmeta">
+      {{ claim.type.value|capitalize }} · {{ claim_period_label }}
+      · <span class="pill {{ claim.status.value }}" id="status">{{ claim.status.value }}</span>
+    </p>
+  </div>
+  <div class="claim-today" aria-label="Today's date">
+    <span class="claim-today-day">{{ today_day }}</span>
+    <time class="claim-today-date">{{ today_date }}</time>
+  </div>
+</div>
 
-<button id="add-line-btn" hx-post="/claims/{{ claim.id }}/lines"
-        hx-target="#lines tbody" hx-swap="beforeend">+ Add line</button>
-<p class="hint">Rows auto-save while you type. Add line, tab through fields, and upload receipt when ready.</p>
+{% if rejection_event %}
+<div class="claim-rejection-notice" role="alert">
+  <strong>Returned for changes</strong>
+  <p>{{ rejection_event.summary }}</p>
+  <p class="hint">Update the claim below, then resubmit when ready.</p>
+</div>
+{% endif %}
 
-<div class="totals">Gross total: £<span id="gross">{{ "%.2f"|format(claim.gross_total) }}</span></div>
+<div class="build claim-build">
+  <div class="claim-main">
+    <div class="claim-panel scroll-x">
+      <table class="ledger claim-lines" id="lines">
+        <thead>
+          <tr>
+            <th>Date</th><th>Detail</th><th>Receipt ref</th><th>Category</th>
+            <th class="r">Amount £</th><th>VAT?</th><th>Receipt</th>
+          </tr>
+        </thead>
+        <tbody id="line-rows">
+          {% if is_editable %}
+            {% for line in claim.lines %}
+              {% include "_line_row.html" %}
+            {% endfor %}
+          {% else %}
+            {% for line in display_lines %}
+              {% include "_line_row_readonly.html" %}
+            {% endfor %}
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
 
-<button id="submitbtn" onclick="submitClaim({{ claim.id }})">Submit claim</button>
-<div id="problems"></div>
+    {% if is_editable %}
+    <div class="claim-toolbar">
+      <button type="button" id="add-line-btn" class="btn ghost sm"
+              hx-post="/claims/{{ claim.id }}/lines"
+              hx-target="#line-rows" hx-swap="beforeend">+ Add line</button>
+      <span class="hint claim-toolbar-hint">Rows auto-save while you type.</span>
+    </div>
 
-<h2>History</h2>
-{% if events %}
+    <div class="claim-submit-block">
+      <div class="claim-submit-total">
+        <span class="l">Gross total</span>
+        <span class="n">£<span id="gross">{{ "%.2f"|format(claim.gross_total) }}</span></span>
+      </div>
+      <button type="button" id="submitbtn" class="go" onclick="submitClaim({{ claim.id }})">{% if is_resubmit %}Resubmit claim{% else %}Submit claim{% endif %}</button>
+      <div id="problems" class="pb"></div>
+    </div>
+    {% endif %}
+  </div>
+
+  <aside class="sum claim-sum">
+    <h3>Summary</h3>
+    <div class="sr"><span>Period</span><span class="v">{{ claim_period_label }}</span></div>
+    <div class="sr"><span>Submit by</span><span class="v">{{ deadline_label }}</span></div>
+    {% if submitted_label %}
+    <div class="sr"><span>Submitted</span><span class="v">{{ submitted_label }}</span></div>
+    {% endif %}
+    {% if approver_name and claim.status.value in ['approved', 'processed'] %}
+    <div class="sr"><span>Approved by</span><span class="v">{{ approver_name }}</span></div>
+    {% endif %}
+    {% if approved_at_label and claim.status.value in ['approved', 'processed'] %}
+    <div class="sr"><span>Approved on</span><span class="v">{{ approved_at_label }}</span></div>
+    {% endif %}
+    <div class="gr claim-sum-total">
+      <div class="l">Gross total</div>
+      <div class="n">£<span id="gross-side">{{ "%.2f"|format(claim.gross_total) }}</span></div>
+    </div>
+    {% if is_editable %}
+    <p class="tip">{% if is_resubmit %}Fix the issues noted above, then resubmit.{% else %}Add your expenses above, then submit when ready.{% endif %}</p>
+    {% endif %}
+  </aside>
+</div>
+
+{% if events and (not is_editable or claim.status.value == 'rejected') %}
+<h2 class="sec-title">Claim timeline</h2>
 <div class="history-timeline">
   {% for e in events %}
   <article class="history-item">
     <div class="history-head">
       <span class="history-action">{{ e.action_label }}</span>
-      <time class="history-when" data-iso="{{ e.at }}">{{ e.at }}</time>
+      <time class="history-when" datetime="{{ e.at }}" data-iso="{{ e.at }}">{{ e.at }}</time>
     </div>
     <div class="history-meta">By {{ e.actor_name }}</div>
-    {% if e.detail_items %}
-    <div class="history-tags">
-      {% for item in e.detail_items %}
-      <span class="history-tag"><strong>{{ item.key }}</strong>: {{ item.value }}</span>
-      {% endfor %}
-    </div>
-    {% elif e.detail %}
-    <div class="history-meta">{{ e.detail }}</div>
+    {% if e.summary %}
+    <p class="history-summary">{{ e.summary }}</p>
     {% endif %}
   </article>
   {% endfor %}
 </div>
-{% else %}
-<p class="hint">No audit events yet for this claim.</p>
 {% endif %}
+{% endblock %}
 
+{% block scripts %}
 <script>
 const saveTimers = new Map();
+const claimIsEditable = {{ "true" if is_editable else "false" }};
+const claimIsResubmit = {{ "true" if is_resubmit else "false" }};
+const claimId = {{ claim.id }};
+
+async function leaveClaim() {
+  if (claimIsEditable) {
+    try {
+      await fetch(`/claims/${claimId}/discard`, { method: "POST" });
+    } catch (e) {
+      /* still navigate away */
+    }
+  }
+  window.location.href = "/?view=claims";
+}
 
 function setRowSaveState(row, text, cssClass) {
   const node = row.querySelector(".savestate");
@@ -111,6 +183,18 @@ function initLineRows(focusNewest = false) {
     const focusTarget = rows[rows.length - 1].querySelector("input[name=date]");
     if (focusTarget) focusTarget.focus();
   }
+}
+
+function updateGrossTotal(value) {
+  const formatted = value.toFixed(2);
+  const main = document.getElementById("gross");
+  const side = document.getElementById("gross-side");
+  if (main) {
+    main.textContent = formatted;
+    main.closest(".n")?.classList.add("tick");
+    setTimeout(() => main.closest(".n")?.classList.remove("tick"), 350);
+  }
+  if (side) side.textContent = formatted;
 }
 
 async function uploadReceipt(input, lineId) {
@@ -170,6 +254,7 @@ async function uploadReceipt(input, lineId) {
     input.value = "";
   }
 }
+
 async function saveLine(row, lineId) {
   const fd = new FormData();
   ["date","narrative","receipt_ref","category","amount"].forEach(n =>
@@ -186,20 +271,27 @@ async function saveLine(row, lineId) {
     return;
   }
   if (d.gross_total != null) {
-    document.getElementById("gross").textContent = d.gross_total.toFixed(2);
+    updateGrossTotal(d.gross_total);
   }
   setRowSaveState(row, "Saved", "saved");
 }
+
 async function submitClaim(id) {
+  const btn = document.getElementById("submitbtn");
+  if (btn) btn.disabled = true;
   const r = await fetch(`/claims/${id}/submit`, {method:"POST"});
   const d = await r.json();
   const box = document.getElementById("problems");
   if (d.ok) {
-    document.getElementById("status").textContent = "submitted";
-    box.innerHTML = `<p class="ok">Submitted. Ref ${d.ref}</p>`;
+    const statusEl = document.getElementById("status");
+    statusEl.textContent = "submitted";
+    statusEl.className = "pill submitted";
+    box.innerHTML = `<p class="ok">${claimIsResubmit ? "Resubmitted" : "Submitted"}. Ref ${d.ref}</p>`;
+    if (btn) btn.remove();
   } else {
     box.innerHTML = "<p class='err'>Fix before submitting:</p><ul>" +
       d.problems.map(p => `<li>${p}</li>`).join("") + "</ul>";
+    if (btn) btn.disabled = false;
   }
 }
 
@@ -219,7 +311,10 @@ function formatHistoryTimes() {
   });
 }
 
-initLineRows(false);
+initLineRows({% if is_editable %}true{% else %}false{% endif %});
 formatHistoryTimes();
+if (typeof bindReceiptThumbButtons === "function") {
+  bindReceiptThumbButtons(document);
+}
 </script>
 {% endblock %}

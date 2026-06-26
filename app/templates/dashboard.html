@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block content %}
+<section id="dash" class="view {% if active_nav != 'claims' %}on{% endif %}">
+  <p class="kicker">Overview</p>
+  <h1 id="dash-greeting">Overview</h1>
+  <p class="lede" id="dash-lede"></p>
+  <div class="grid-stats">
+    <div class="scard"><div class="n navy" id="stat-claimed">£0.00</div><div class="l">Claimed this month</div><div class="sub" id="stat-claimed-sub">across 0 claims</div></div>
+    <div class="scard"><div class="n clay" id="stat-awaiting">£0.00</div><div class="l">Awaiting approval</div><div class="sub" id="stat-awaiting-sub">Nothing waiting</div></div>
+    <div class="scard"><div class="n sage" id="stat-paid">£0.00</div><div class="l">Paid year to date</div><div class="sub" id="stat-paid-sub">0 claims processed</div></div>
+    <div class="scard"><div class="n" id="stat-deadline">—</div><div class="l">Next deadline</div><div class="sub" id="stat-deadline-sub">No open periods</div></div>
+  </div>
+  <div class="dash-row">
+    <div class="box"><h3>Spend by category</h3><p class="hint">This financial year</p><div class="bars" id="catbars"></div></div>
+    <div class="box"><h3>My claims by status</h3><p class="hint">All time</p><div class="donut-wrap"><svg class="donut" viewBox="0 0 42 42" id="donut"></svg><div class="legend" id="legend"></div></div></div>
+  </div>
+</section>
+
+<section id="claims" class="view {% if active_nav == 'claims' %}on{% endif %}">
+  <p class="kicker">My claims</p>
+  <h1>Claims</h1>
+  <p class="lede">Begin a new claim, or return to one below. Your work saves as you type.</p>
+  <p class="sec-label">Start a claim</p>
+  <div class="starts" id="period-starts"></div>
+  <p class="sec-label">Your claims</p>
+  <div class="scroll-x approval-table-wrap">
+    <table class="ledger approval-queue stack-cards">
+      <thead>
+        <tr>
+          <th>Reference</th>
+          <th>Detail</th>
+          <th>Receipt ref</th>
+          <th>Category</th>
+          <th>Type</th>
+          <th class="r">Amount</th>
+          <th>Posted</th>
+          <th>Status</th>
+          <th>Approved by</th>
+          <th class="c">Receipt</th>
+        </tr>
+      </thead>
+      <tbody id="history-rows"></tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/claim-record-table.js"></script>
+<script>
+const LIVE = {{ dashboard_json | tojson }};
+const STATUS=[["draft","Draft","#9a7b1e"],["submitted","Submitted","#a85a3c"],["approved","Approved","#5f7a5b"],["processed","Processed","#9c9b92"],["rejected","Rejected","#9d3a3a"]];
+
+function applyLiveDashboard(){
+  const s=LIVE.stats;
+  document.getElementById("dash-greeting").textContent=LIVE.greeting;
+  document.getElementById("dash-lede").textContent=LIVE.lede;
+  document.getElementById("stat-claimed").textContent="£"+s.claimedMonth.toFixed(2);
+  document.getElementById("stat-claimed-sub").textContent=`across ${s.claimsMonthCount} claim${s.claimsMonthCount===1?"":"s"}`;
+  document.getElementById("stat-awaiting").textContent="£"+s.awaitingTotal.toFixed(2);
+  document.getElementById("stat-awaiting-sub").textContent=s.awaitingSub;
+  document.getElementById("stat-paid").textContent="£"+s.paidYtd.toFixed(2);
+  document.getElementById("stat-paid-sub").textContent=`${s.paidYtdCount} claim${s.paidYtdCount===1?"":"s"} processed`;
+  document.getElementById("stat-deadline").textContent=s.deadlineMain;
+  document.getElementById("stat-deadline-sub").textContent=s.deadlineSub;
+}
+function renderPeriodStarts(){
+  const el=document.getElementById("period-starts");
+  if(!LIVE.openPeriods.length){
+    el.innerHTML=`<div class="start" style="cursor:default"><div class="t">No open periods</div><div class="m">Check back later</div><div class="d">Finance will open the next claim window.</div></div>`;
+    return;
+  }
+  el.innerHTML=LIVE.openPeriods.map(p=>`<div class="start" tabindex="0" role="button" onclick="startClaim(${p.id})" onkeydown="if(event.key==='Enter')startClaim(${p.id})"><div class="t">${p.startSubtitle}</div><div class="m">${p.startTitle}</div><div class="d">Submit by ${p.deadlineLabel}</div><div class="arr">→</div></div>`).join("");
+}
+function startClaim(periodId){
+  const f=document.createElement("form");
+  f.method="POST"; f.action="/claims/new";
+  const inp=document.createElement("input");
+  inp.type="hidden"; inp.name="period_id"; inp.value=String(periodId);
+  f.appendChild(inp); document.body.appendChild(f); f.submit();
+}
+function renderHistory(){
+  const lines=LIVE.historyLines||[];
+  const rowsNode=document.getElementById("history-rows");
+  if(!lines.length){
+    rowsNode.innerHTML=`<tr><td colspan="10" style="text-align:center;color:var(--dim);padding:30px">No claims yet — start one above.</td></tr>`;
+    return;
+  }
+  rowsNode.innerHTML=lines.map(item=>ClaimRecordTable.renderRow(ClaimRecordTable.historyLineToRow(item),{
+    nameField:"ref",
+    showStatus:true,
+    showApprovedBy:true,
+    clickable:true,
+  })).join("");
+  bindReceiptThumbButtons(rowsNode);
+}
+function renderDash(){
+  const cat=LIVE.catSpend.length?LIVE.catSpend:[["No spend yet",0]];
+  const max=Math.max(...cat.map(c=>c[1]),1);
+  document.getElementById("catbars").innerHTML=cat.map(([c,v])=>`<div class="bar"><span class="cap">${c}</span><span class="track"><span class="fill" data-w="${(v/max*100).toFixed(1)}"></span></span><span class="val">£${v.toFixed(2)}</span></div>`).join("");
+  requestAnimationFrame(()=>document.querySelectorAll("#catbars .fill").forEach(f=>f.style.width=f.dataset.w+"%"));
+  donut("donut","legend",STATUS.map(([k,l,c])=>[l,c,LIVE.statusCounts[k]||0]));
+}
+function donut(svgId,legId,counts){
+  const tot=counts.reduce((a,c)=>a+c[2],0)||1; let off=0;
+  const seg=counts.filter(c=>c[2]>0).map(([l,col,n])=>{const len=n/tot*100;const s=`<circle cx="21" cy="21" r="15.915" fill="transparent" stroke="${col}" stroke-width="6" stroke-dasharray="${len} ${100-len}" stroke-dashoffset="${25-off}"></circle>`;off+=len;return s;}).join("");
+  document.getElementById(svgId).innerHTML=`<circle cx="21" cy="21" r="15.915" fill="transparent" stroke="#f0eee6" stroke-width="6"></circle>${seg}`;
+  document.getElementById(legId).innerHTML=counts.map(([l,col,n])=>`<div class="li"><span class="sw" style="background:${col}"></span>${l}<b>${n}</b></div>`).join("");
+}
+applyLiveDashboard(); renderDash(); renderHistory(); renderPeriodStarts();
+</script>
+{% endblock %}

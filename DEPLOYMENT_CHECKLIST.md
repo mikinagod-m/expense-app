@@ -1,13 +1,15 @@
-# Deployment Checklist (Phase 2)
+# Deployment Checklist (Phase 2+ / Pilot)
 
 Use this checklist before promoting `expense-app` to pilot users.
 
+Last reviewed: 2026-06-26
+
 ## 1) Pre-Deploy Readiness
 
-- [ ] `PHASE1_TASK_BOARD.md` and `PHASE2_TASK_BOARD.md` target items marked done.
+- [ ] `PHASE1_TASK_BOARD.md`, `PHASE2_TASK_BOARD.md`, and `PHASE3_TASK_BOARD.md` target items marked done (except `P3-04` if still on dev login).
 - [ ] `PROJECT_PROGRESS_TRACKER.md` updated with current release scope.
 - [ ] CI smoke workflow green on latest commit (`Smoke Tests`).
-- [ ] Local smoke run passes:
+- [ ] Local smoke run passes (21 tests):
   - [ ] `python -m unittest discover -s tests -p "test_*.py" -v`
 
 ## 2) Environment and Config
@@ -60,13 +62,20 @@ Use this checklist before promoting `expense-app` to pilot users.
 - [ ] Manager flow:
   - [ ] view pending queue
   - [ ] approve claim
-  - [ ] reject claim
+  - [ ] reject claim (per-line comment on at least one line)
+  - [ ] verify aggregated rejection reason reaches claimant
+- [ ] Claimant reject/resubmit flow:
+  - [ ] open rejected claim — lines editable, rejection banner visible
+  - [ ] edit line(s) and resubmit
+  - [ ] claim returns to manager pending queue
 - [ ] Finance flow:
   - [ ] view approved queue
   - [ ] mark processed
   - [ ] export CSV
   - [ ] export XLSX
+  - [ ] export PDF (optional)
   - [ ] open reconciliation page and execute manual match
+  - [ ] run backup script (`.\scripts\backup.ps1`)
 
 ## 7) Audit and Observability
 

@@ -19,7 +19,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from app.main import app  # noqa: E402
 from app.db import SessionLocal, engine  # noqa: E402
-from app.models import AuditLog, Category, Claim, ClaimLine, ClaimStatus, ClaimType, Period, StatementLine, User  # noqa: E402
+from app.models import AuditLog, Category, Claim, ClaimLine, ClaimStatus, ClaimType, Period, Receipt, StatementLine, User  # noqa: E402
 
 
 class SmokeEndpointTests(unittest.TestCase):
@@ -261,6 +261,59 @@ class SmokeEndpointTests(unittest.TestCase):
         self.assertTrue(second_upload.json().get("possible_duplicate"))
         self.assertGreaterEqual(len(second_upload.json().get("duplicate_reasons", [])), 1)
 
+    def test_discard_empty_draft_on_leave(self):
+        with SessionLocal() as db:
+            period = db.scalar(select(Period).where(Period.is_open == True).order_by(Period.id))  # noqa: E712
+            user = db.scalar(select(User).order_by(User.id))
+            claim = Claim(user_id=user.id, period_id=period.id, type=period.type)
+            db.add(claim)
+            db.flush()
+            db.add(ClaimLine(claim_id=claim.id))
+            db.commit()
+            claim_id = claim.id
+            user_id = user.id
+
+        self.client.get(f"/login?as={user_id}", follow_redirects=False)
+        discard = self.client.post(f"/claims/{claim_id}/discard")
+        self.assertEqual(discard.status_code, 200)
+        self.assertTrue(discard.json()["discarded"])
+
+        with SessionLocal() as db:
+            self.assertIsNone(db.get(Claim, claim_id))
+
+        home = self.client.get("/?view=claims")
+        self.assertEqual(home.status_code, 200)
+        self.assertNotIn(f"/claims/{claim_id}", home.text)
+
+    def test_discard_does_not_remove_draft_with_data(self):
+        with SessionLocal() as db:
+            period = db.scalar(select(Period).where(Period.is_open == True).order_by(Period.id))  # noqa: E712
+
+        create = self.client.post("/claims/new", data={"period_id": period.id}, follow_redirects=False)
+        claim_id = int(create.headers["location"].split("/")[-1])
+        with SessionLocal() as db:
+            line = db.scalar(select(ClaimLine).where(ClaimLine.claim_id == claim_id))
+
+        save = self.client.post(
+            f"/lines/{line.id}",
+            data={
+                "date": dt.date.today().isoformat(),
+                "narrative": "Client lunch",
+                "receipt_ref": "",
+                "category": "subsistence",
+                "amount": "12.50",
+                "reclaim_vat": "false",
+            },
+        )
+        self.assertEqual(save.status_code, 200)
+
+        discard = self.client.post(f"/claims/{claim_id}/discard")
+        self.assertEqual(discard.status_code, 200)
+        self.assertFalse(discard.json()["discarded"])
+
+        with SessionLocal() as db:
+            self.assertIsNotNone(db.get(Claim, claim_id))
+
     def test_manager_approvals_ui_and_decision(self):
         with SessionLocal() as db:
             manager = db.scalar(select(User).order_by(User.id))
@@ -299,16 +352,22 @@ class SmokeEndpointTests(unittest.TestCase):
             db.commit()
 
             claim_id = claim.id
+            report_name = report.name
 
         approvals_page = self.client.get("/manager/approvals")
         self.assertEqual(approvals_page.status_code, 200)
-        self.assertIn("Manager approvals", approvals_page.text)
+        self.assertIn("Approvals", approvals_page.text)
+        self.assertIn("aimia-shell.css", approvals_page.text)
 
         pending = self.client.get("/manager/claims/pending")
         self.assertEqual(pending.status_code, 200)
         payload = pending.json()
         self.assertTrue(payload["ok"])
-        self.assertTrue(any(c["id"] == claim_id for c in payload["claims"]))
+        match = next(c for c in payload["claims"] if c["id"] == claim_id)
+        self.assertEqual(match["claimant_name"], report_name)
+        self.assertEqual(len(match["lines"]), 1)
+        self.assertEqual(match["lines"][0]["narrative"], "Manager review test")
+        self.assertEqual(match["lines"][0]["amount"], 22.10)
 
         decision = self.client.post(
             f"/manager/claims/{claim_id}/decision",
@@ -316,6 +375,62 @@ class SmokeEndpointTests(unittest.TestCase):
         )
         self.assertEqual(decision.status_code, 200)
         self.assertEqual(decision.json()["status"], "approved")
+
+    def test_manager_can_view_receipt_on_pending_claim(self):
+        receipt_path = TEST_RECEIPTS_DIR / "manager-view.png"
+        receipt_path.parent.mkdir(parents=True, exist_ok=True)
+        receipt_path.write_bytes(b"\x89PNG\r\n\x1a\nfake-png-for-test")
+
+        with SessionLocal() as db:
+            manager = db.scalar(select(User).order_by(User.id))
+            manager.is_finance = True
+
+            report = db.scalar(select(User).where(User.manager_id == manager.id))
+            if not report:
+                report = User(
+                    name="Receipt Report",
+                    email=f"receipt-report-{uuid4().hex[:8]}@example.com",
+                    manager_id=manager.id,
+                )
+                db.add(report)
+                db.flush()
+
+            period = db.scalar(select(Period).where(Period.is_open == True).order_by(Period.id))  # noqa: E712
+            claim = Claim(
+                user_id=report.id,
+                period_id=period.id,
+                type=period.type,
+                status=ClaimStatus.submitted,
+            )
+            db.add(claim)
+            db.flush()
+            line = ClaimLine(
+                claim_id=claim.id,
+                date=dt.date.today(),
+                narrative="Receipt review",
+                category=Category.travel,
+                amount=50.0,
+            )
+            db.add(line)
+            db.flush()
+            receipt = Receipt(claim_line_id=line.id, file_path=str(receipt_path))
+            db.add(receipt)
+            db.commit()
+            receipt_id = receipt.id
+
+        pending = self.client.get("/manager/claims/pending")
+        self.assertEqual(pending.status_code, 200)
+        claim_payload = next(c for c in pending.json()["claims"] if c["lines"][0]["narrative"] == "Receipt review")
+        self.assertIsNotNone(claim_payload["lines"][0]["receipt"])
+        self.assertTrue(claim_payload["lines"][0]["receipt"]["is_image"])
+
+        view = self.client.get(f"/receipts/{receipt_id}")
+        self.assertEqual(view.status_code, 200)
+        self.assertIn("image/png", view.headers.get("content-type", ""))
+
+        anon = TestClient(app)
+        denied = anon.get(f"/receipts/{receipt_id}")
+        self.assertEqual(denied.status_code, 401)
 
     def test_manager_reject_requires_comment(self):
         with SessionLocal() as db:
@@ -357,6 +472,157 @@ class SmokeEndpointTests(unittest.TestCase):
         self.assertEqual(with_comment.status_code, 200)
         self.assertEqual(with_comment.json()["status"], "rejected")
 
+    def test_manager_rejection_aggregates_line_comments(self):
+        with SessionLocal() as db:
+            manager = db.scalar(select(User).order_by(User.id))
+            manager.is_finance = True
+            claimant = db.scalar(select(User).where(User.id != manager.id).order_by(User.id))
+            self.assertIsNotNone(claimant)
+            claimant.manager_id = manager.id
+
+            period = db.scalar(select(Period).where(Period.is_open == True).order_by(Period.id))  # noqa: E712
+            claim = Claim(
+                user_id=claimant.id,
+                period_id=period.id,
+                type=period.type,
+                status=ClaimStatus.submitted,
+            )
+            db.add(claim)
+            db.flush()
+            db.add_all([
+                ClaimLine(
+                    claim_id=claim.id,
+                    date=dt.date.today(),
+                    narrative="Customer visit",
+                    receipt_ref="1234",
+                    category=Category.subsistence,
+                    amount=250.0,
+                ),
+                ClaimLine(
+                    claim_id=claim.id,
+                    date=dt.date.today(),
+                    narrative="Customer visit",
+                    receipt_ref="43637",
+                    category=Category.hotel,
+                    amount=100.0,
+                ),
+            ])
+            db.commit()
+            claim_id = claim.id
+
+        pending = self.client.get("/manager/claims/pending")
+        match = next(c for c in pending.json()["claims"] if c["id"] == claim_id)
+        self.assertEqual(len(match["lines"]), 2)
+
+        reject = self.client.post(
+            f"/manager/claims/{claim_id}/decision",
+            data={
+                "decision": "rejected",
+                "comment": "subsistence · Customer visit: Fix receipt ref | hotel · Customer visit: Amount looks high",
+            },
+        )
+        self.assertEqual(reject.status_code, 200)
+        self.assertEqual(reject.json()["status"], "rejected")
+
+        with SessionLocal() as db:
+            row = db.scalar(
+                select(AuditLog)
+                .where(AuditLog.action == "claim.reject", AuditLog.detail.contains(f"claim_id={claim_id}"))
+                .order_by(AuditLog.id.desc())
+            )
+            self.assertIsNotNone(row)
+            self.assertIn("Fix receipt ref", row.detail)
+            self.assertIn("Amount looks high", row.detail)
+
+    def test_rejected_claim_editable_and_resubmit(self):
+        with SessionLocal() as db:
+            manager = db.scalar(select(User).order_by(User.id))
+            manager.is_finance = True
+            claimant = db.scalar(select(User).where(User.id != manager.id).order_by(User.id))
+            self.assertIsNotNone(claimant)
+            claimant.manager_id = manager.id
+
+            period = db.scalar(select(Period).where(Period.is_open == True).order_by(Period.id))  # noqa: E712
+            claim = Claim(
+                user_id=claimant.id,
+                period_id=period.id,
+                type=period.type,
+                status=ClaimStatus.submitted,
+                unique_ref=f"TEST{claimant.id:04d}",
+            )
+            db.add(claim)
+            db.flush()
+            line = ClaimLine(
+                claim_id=claim.id,
+                date=dt.date.today(),
+                narrative="Needs receipt ref",
+                category=Category.travel,
+                amount=22.50,
+                receipt_ref="R-OLD",
+            )
+            db.add(line)
+            db.commit()
+            claim_id = claim.id
+            line_id = line.id
+            manager_id = manager.id
+            claimant_email = claimant.email
+
+        mgr_client = TestClient(app)
+        mgr_client.get(f"/login?as={manager_id}")
+        reject = mgr_client.post(
+            f"/manager/claims/{claim_id}/decision",
+            data={"decision": "rejected", "comment": "Add missing receipt refs"},
+        )
+        self.assertEqual(reject.status_code, 200)
+        self.assertEqual(reject.json()["status"], "rejected")
+
+        claimant_client = TestClient(app)
+        claimant_client.get(f"/login?as={claimant_email}")
+        page = claimant_client.get(f"/claims/{claim_id}")
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("Resubmit claim", page.text)
+        self.assertIn("Returned for changes", page.text)
+        self.assertIn("Add missing receipt refs", page.text)
+        self.assertIn('name="narrative"', page.text)
+
+        save = claimant_client.post(
+            f"/lines/{line_id}",
+            data={
+                "date": dt.date.today().isoformat(),
+                "narrative": "Updated taxi with receipt",
+                "receipt_ref": "R-NEW-99",
+                "category": "travel",
+                "amount": "22.50",
+                "reclaim_vat": "false",
+            },
+        )
+        self.assertEqual(save.status_code, 200)
+        self.assertTrue(save.json()["ok"])
+
+        resubmit = claimant_client.post(f"/claims/{claim_id}/submit")
+        self.assertEqual(resubmit.status_code, 200)
+        self.assertTrue(resubmit.json()["ok"])
+
+        with SessionLocal() as db:
+            claim = db.get(Claim, claim_id)
+            self.assertEqual(claim.status, ClaimStatus.submitted)
+            line = db.get(ClaimLine, line_id)
+            self.assertEqual(line.receipt_ref, "R-NEW-99")
+
+        blocked = claimant_client.post(
+            f"/lines/{line_id}",
+            data={
+                "date": dt.date.today().isoformat(),
+                "narrative": "Edit after resubmit",
+                "receipt_ref": "R-BLOCK",
+                "category": "travel",
+                "amount": "1.00",
+                "reclaim_vat": "false",
+            },
+        )
+        self.assertEqual(blocked.status_code, 400)
+        self.assertIn("can no longer be edited", blocked.json().get("detail", ""))
+
     def test_finance_processing_ui_and_action(self):
         with SessionLocal() as db:
             finance_user = db.scalar(select(User).order_by(User.id))
@@ -385,7 +651,8 @@ class SmokeEndpointTests(unittest.TestCase):
 
         processing_page = self.client.get("/finance/processing")
         self.assertEqual(processing_page.status_code, 200)
-        self.assertIn("Finance processing queue", processing_page.text)
+        self.assertIn("Processing queue", processing_page.text)
+        self.assertIn("aimia-shell.css", processing_page.text)
 
         approved = self.client.get("/finance/claims/approved")
         self.assertEqual(approved.status_code, 200)
@@ -463,6 +730,7 @@ class SmokeEndpointTests(unittest.TestCase):
             )
             db.commit()
             approved_ref = approved_claim.unique_ref
+            approved_id = approved_claim.id
             submitted_ref = submitted_claim.unique_ref
             base_period_filter = f"{base_period.year}-{base_period.month:02d}"
 
@@ -486,6 +754,78 @@ class SmokeEndpointTests(unittest.TestCase):
             xlsx_resp.headers.get("content-type", ""),
         )
         self.assertTrue(xlsx_resp.content.startswith(b"PK"))
+
+        pdf_resp = self.client.get("/finance/exports/lines.pdf?status=approved&type=all&period=all")
+        self.assertEqual(pdf_resp.status_code, 200)
+        self.assertIn("application/pdf", pdf_resp.headers.get("content-type", ""))
+        self.assertTrue(pdf_resp.content.startswith(b"%PDF"))
+
+        claim_pdf = self.client.get(f"/finance/exports/claims/{approved_id}.pdf")
+        self.assertEqual(claim_pdf.status_code, 200)
+        self.assertIn("application/pdf", claim_pdf.headers.get("content-type", ""))
+        self.assertTrue(claim_pdf.content.startswith(b"%PDF"))
+
+    def test_backup_run(self):
+        import tempfile
+        from pathlib import Path
+
+        from app.backup_utils import run_backup
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db_path = root / "test.db"
+            db_path.write_bytes(b"sqlite-test")
+            receipts = root / "receipts"
+            receipts.mkdir()
+            (receipts / "sample.txt").write_text("receipt", encoding="utf-8")
+            backup_root = root / "backups"
+
+            result = run_backup(
+                database_url=f"sqlite:///{db_path.as_posix()}",
+                receipts_dir=str(receipts),
+                backup_dir=str(backup_root),
+                retention_days=14,
+            )
+            self.assertTrue(result["ok"])
+            destination = Path(result["destination"])
+            self.assertTrue((destination / "test.db").is_file())
+            self.assertTrue((destination / "receipts" / "sample.txt").is_file())
+            self.assertTrue((destination / "manifest.json").is_file())
+
+    def test_nav_badges(self):
+        with SessionLocal() as db:
+            manager = db.scalar(select(User).order_by(User.id))
+            manager.is_finance = False
+            manager.is_admin = False
+
+            report = db.scalar(select(User).where(User.manager_id == manager.id))
+            if not report:
+                report = User(
+                    name="Badge Report",
+                    email=f"badge.report.{uuid4().hex[:8]}@example.com",
+                    manager_id=manager.id,
+                )
+                db.add(report)
+                db.flush()
+
+            period = db.scalar(select(Period).where(Period.is_open == True).order_by(Period.id))  # noqa: E712
+            pending = Claim(
+                user_id=report.id,
+                period_id=period.id,
+                type=period.type,
+                status=ClaimStatus.submitted,
+                unique_ref=f"BADGE-{uuid4().hex[:8]}",
+            )
+            db.add(pending)
+            db.commit()
+            manager_id = manager.id
+
+        self.client.get(f"/login?as={manager_id}", follow_redirects=False)
+        badges = self.client.get("/nav/badges")
+        self.assertEqual(badges.status_code, 200)
+        body = badges.json()
+        self.assertTrue(body["ok"])
+        self.assertGreaterEqual(body["pending_approvals"], 1)
 
     def test_reconciliation_scaffold_flow(self):
         with SessionLocal() as db:
@@ -531,21 +871,25 @@ class SmokeEndpointTests(unittest.TestCase):
 
         recon_page = self.client.get("/finance/reconciliation")
         self.assertEqual(recon_page.status_code, 200)
-        self.assertIn("Finance reconciliation", recon_page.text)
+        self.assertIn("Reconciliation", recon_page.text)
+        self.assertIn("aimia-shell.css", recon_page.text)
 
         data_before = self.client.get(f"/finance/reconciliation/data?period={period_filter}&show=all")
         self.assertEqual(data_before.status_code, 200)
         body_before = data_before.json()
         self.assertTrue(body_before["ok"])
         self.assertTrue(any(r["statement_line_id"] == statement_id and r["status"] == "unmatched_statement" for r in body_before["statement_rows"]))
+        unmatched_row = next(r for r in body_before["statement_rows"] if r["statement_line_id"] == statement_id)
+        self.assertIsNotNone(unmatched_row.get("suggested_match"))
+        self.assertEqual(unmatched_row["suggested_match"]["claim_line_id"], claim_line_id)
         self.assertTrue(any(r["claim_line_id"] == claim_line_id and r["status"] == "missing_statement" for r in body_before["missing_claim_rows"]))
 
-        match = self.client.post(
+        accept = self.client.post(
             f"/finance/reconciliation/statement-lines/{statement_id}/match",
-            data={"claim_line_id": claim_line_id},
+            data={"claim_line_id": unmatched_row["suggested_match"]["claim_line_id"]},
         )
-        self.assertEqual(match.status_code, 200)
-        self.assertTrue(match.json()["ok"])
+        self.assertEqual(accept.status_code, 200)
+        self.assertTrue(accept.json()["ok"])
 
         data_after = self.client.get(f"/finance/reconciliation/data?period={period_filter}&show=all")
         self.assertEqual(data_after.status_code, 200)
@@ -636,6 +980,136 @@ class SmokeEndpointTests(unittest.TestCase):
         )
         self.assertEqual(finance_decision.status_code, 200)
         self.assertEqual(finance_decision.json()["status"], "approved")
+
+    def test_statement_csv_import(self):
+        with SessionLocal() as db:
+            finance_user = db.scalar(select(User).order_by(User.id))
+            finance_user.is_finance = True
+            db.commit()
+
+        csv_body = (
+            "date,merchant,amount,cardholder\n"
+            "2026-06-10,Coffee Shop,4.50,Jordan Blake\n"
+            "2026-06-11,Stationery,12.00,Jordan Blake\n"
+        )
+        resp = self.client.post(
+            "/finance/reconciliation/import",
+            files={"file": ("statement.csv", BytesIO(csv_body.encode("utf-8")), "text/csv")},
+        )
+        self.assertEqual(resp.status_code, 200)
+        payload = resp.json()
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["imported"], 2)
+
+        data = self.client.get("/finance/reconciliation/data?period=2026-06")
+        self.assertEqual(data.status_code, 200)
+        rows = data.json()["statement_rows"]
+        self.assertGreaterEqual(len(rows), 2)
+
+    def test_finance_period_toggle(self):
+        with SessionLocal() as db:
+            finance_user = db.scalar(select(User).order_by(User.id))
+            finance_user.is_finance = True
+            period = db.scalar(select(Period).order_by(Period.id))
+            period_id = period.id
+            was_open = period.is_open
+            db.commit()
+
+        listed = self.client.get("/finance/periods/data")
+        self.assertEqual(listed.status_code, 200)
+        self.assertTrue(any(p["id"] == period_id for p in listed.json()["periods"]))
+
+        toggled = self.client.post(f"/finance/periods/{period_id}/toggle")
+        self.assertEqual(toggled.status_code, 200)
+        self.assertEqual(toggled.json()["is_open"], not was_open)
+
+        # restore original state
+        self.client.post(f"/finance/periods/{period_id}/toggle")
+
+    def test_submit_still_works_with_notifications_module(self):
+        with SessionLocal() as db:
+            period = db.scalar(select(Period).where(Period.is_open == True).order_by(Period.id))  # noqa: E712
+            user = db.scalar(select(User).where(User.manager_id.is_not(None)).order_by(User.id))
+            claim = Claim(
+                user_id=user.id,
+                period_id=period.id,
+                type=period.type,
+                status=ClaimStatus.draft,
+            )
+            db.add(claim)
+            db.flush()
+            db.add(
+                ClaimLine(
+                    claim_id=claim.id,
+                    date=dt.date.today(),
+                    narrative="Notify smoke",
+                    category=Category.travel,
+                    amount=9.99,
+                    receipt_ref="R-NOTIFY",
+                )
+            )
+            db.commit()
+            claim_id = claim.id
+            user_id = user.id
+
+        self.client.get(f"/login?as={user_id}", follow_redirects=False)
+        submit = self.client.post(f"/claims/{claim_id}/submit")
+        self.assertEqual(submit.status_code, 200)
+        self.assertTrue(submit.json()["ok"])
+
+    def test_admin_user_privileges(self):
+        with SessionLocal() as db:
+            admin = db.scalar(select(User).order_by(User.id))
+            admin.is_admin = True
+            admin.is_finance = True
+            target = User(
+                name="Privilege Target",
+                email=f"priv.target.{uuid4().hex[:8]}@example.com",
+                can_claim_cash=True,
+                has_credit_card=False,
+            )
+            db.add(target)
+            db.commit()
+            admin_id = admin.id
+            target_id = target.id
+
+        self.client.get(f"/login?as={admin_id}", follow_redirects=False)
+        page = self.client.get("/admin/users")
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("Users &amp; roles", page.text)
+
+        data = self.client.get("/admin/users/data")
+        self.assertEqual(data.status_code, 200)
+        body = data.json()
+        self.assertTrue(body["ok"])
+        row = next(u for u in body["users"] if u["id"] == target_id)
+        self.assertNotIn("manager", row["roles"])
+
+        update = self.client.post(
+            f"/admin/users/{target_id}",
+            data={
+                "manager_id": str(admin_id),
+                "is_finance": "",
+                "is_admin": "",
+                "has_credit_card": "1",
+                "can_claim_cash": "1",
+            },
+        )
+        self.assertEqual(update.status_code, 200)
+        updated = update.json()["user"]
+        self.assertTrue(updated["has_credit_card"])
+        self.assertEqual(updated["manager_id"], admin_id)
+
+        admin_row = next(u for u in body["users"] if u["id"] == admin_id)
+        refreshed = self.client.get("/admin/users/data").json()
+        admin_row = next(u for u in refreshed["users"] if u["id"] == admin_id)
+        self.assertIn("manager", admin_row["roles"])
+
+        self.client.get(f"/login?as={target_id}", follow_redirects=False)
+        forbidden = self.client.get("/admin/users/data")
+        self.assertEqual(forbidden.status_code, 403)
+
+        self.client.get(f"/login?as={admin_id}", follow_redirects=False)
 
 
 if __name__ == "__main__":

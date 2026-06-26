@@ -7,16 +7,18 @@ import os
 import uuid
 
 from fastapi import FastAPI, Request, Depends, Form, UploadFile, File, HTTPException, Query
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from openpyxl import Workbook
 from starlette.middleware.sessions import SessionMiddleware
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
 from .config import settings
 from .db import get_db, engine
+import calendar
+
 from .models import (Base, User, Period, Claim, ClaimLine, Receipt, AuditLog,
                      ClaimType, ClaimStatus, Category, StatementLine, utc_now)
 from .auth import (
@@ -24,11 +26,36 @@ from .auth import (
     require_user,
     require_manager_or_finance,
     require_finance,
+    require_admin,
     user_is_manager,
+)
+from .claim_utils import (
+    claim_is_editable_by_owner,
+    delete_claim,
+    is_claim_empty,
+    line_is_blank,
+    purge_empty_drafts,
+)
+from .notifications import (
+    notify_claimant_decision,
+    notify_claimant_processed,
+    notify_manager_claim_submitted,
+)
+from .statement_import import parse_statement_csv
+from .reconciliation_match import index_unmatched_card_lines, suggest_match_for_statement
+from .finance_pdf import build_claim_export_pdf, build_period_export_pdf
+from .schema_upgrade import upgrade_schema
+from .user_admin import (
+    parse_bool,
+    serialize_user_row,
+    user_can_claim_period,
+    validate_manager_id,
+    validate_new_user,
 )
 from .ocr import parse_receipt
 
 Base.metadata.create_all(engine)
+upgrade_schema(engine)
 
 app = FastAPI(title="Aimia Expense App")
 app.add_middleware(SessionMiddleware, secret_key=settings.secret_key)
@@ -37,6 +64,14 @@ templates = Jinja2Templates(directory="app/templates")
 os.makedirs(settings.receipts_dir, exist_ok=True)
 app.state.auth_init_error = None
 ALLOWED_RECEIPT_EXTENSIONS = {".jpg", ".jpeg", ".png", ".pdf", ".webp"}
+RECEIPT_MEDIA_TYPES = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+    ".pdf": "application/pdf",
+}
+IMAGE_RECEIPT_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 
 
 def log(db: Session, user_id, action, detail=""):
@@ -44,6 +79,99 @@ def log(db: Session, user_id, action, detail=""):
     safe_detail = (detail or "")[:500]
     db.add(AuditLog(user_id=user_id, action=action, detail=safe_detail))
     db.commit()
+
+
+def can_view_claim(user: User, claim: Claim) -> bool:
+    return (
+        claim.user_id == user.id
+        or user.is_finance
+        or claim.user.manager_id == user.id
+    )
+
+
+def serialize_line_for_review(line: ClaimLine) -> dict:
+    receipt = line.receipt
+    receipt_info = None
+    if receipt and receipt.file_path and os.path.isfile(receipt.file_path):
+        ext = os.path.splitext(receipt.file_path)[1].lower()
+        receipt_info = {
+            "id": receipt.id,
+            "url": f"/receipts/{receipt.id}",
+            "is_image": ext in IMAGE_RECEIPT_EXTENSIONS,
+            "filename": os.path.basename(receipt.file_path),
+        }
+    return {
+        "id": line.id,
+        "date": line.date.isoformat() if line.date else None,
+        "narrative": line.narrative or "",
+        "receipt_ref": line.receipt_ref or "",
+        "category": line.category.value.replace("_", " "),
+        "amount": line.amount,
+        "reclaim_vat": line.reclaim_vat,
+        "receipt": receipt_info,
+    }
+
+
+def serialize_claim_for_review(claim: Claim) -> dict:
+    """Backward-compatible alias; prefer serialize_claim_record with db session."""
+    lines = [
+        serialize_line_for_review(line)
+        for line in claim.lines
+        if not line_is_blank(line)
+    ]
+    return {
+        "id": claim.id,
+        "ref": claim.unique_ref,
+        "user_id": claim.user_id,
+        "claimant_name": claim.user.name,
+        "period_id": claim.period_id,
+        "period_label": f"{claim.period.month:02d}/{claim.period.year}",
+        "type": claim.type.value,
+        "status": claim.status.value,
+        "gross_total": claim.gross_total,
+        "submitted_at": claim.submitted_at.isoformat() if claim.submitted_at else None,
+        "lines": lines,
+    }
+
+
+def claim_approver_name(db: Session, claim: Claim) -> str | None:
+    if claim.approver:
+        return claim.approver.name
+    if claim.approved_by:
+        approver = db.get(User, claim.approved_by)
+        return approver.name if approver else None
+    return None
+
+
+def serialize_claim_record(db: Session, claim: Claim) -> dict:
+    """Full claim payload for queues, history, and reports."""
+    _ = claim.user
+    _ = claim.period
+    if claim.approved_by:
+        _ = claim.approver
+    posted_label, _ = claim_posted_label(claim)
+    lines = [
+        serialize_line_for_review(line)
+        for line in claim.lines
+        if not line_is_blank(line)
+    ]
+    return {
+        "id": claim.id,
+        "ref": claim.unique_ref,
+        "user_id": claim.user_id,
+        "claimant_name": claim.user.name,
+        "period_id": claim.period_id,
+        "period_label": f"{claim.period.month:02d}/{claim.period.year}",
+        "type": claim.type.value,
+        "status": claim.status.value,
+        "gross_total": claim.gross_total,
+        "submitted_at": claim.submitted_at.isoformat() if claim.submitted_at else None,
+        "posted_label": posted_label,
+        "approved_by_id": claim.approved_by,
+        "approved_by_name": claim_approver_name(db, claim),
+        "approved_at": claim.approved_at.isoformat() if claim.approved_at else None,
+        "lines": lines,
+    }
 
 
 def claim_audit_events(db: Session, claim: Claim) -> list[dict]:
@@ -68,12 +196,42 @@ def claim_audit_events(db: Session, claim: Claim) -> list[dict]:
                 rows.append(row)
 
     rows.sort(key=lambda r: (r.at, r.id), reverse=True)
+    return _format_audit_rows(db, rows)
+
+
+CLAIM_TIMELINE_ACTIONS = frozenset({
+    "claim.create",
+    "claim.submit",
+    "claim.approve",
+    "claim.reject",
+    "claim.process",
+})
+
+TIMELINE_DETAIL_LABELS = {
+    "ref": "Reference",
+    "decision": "Decision",
+    "comment": "Comment",
+}
+
+TIMELINE_HIDDEN_KEYS = frozenset({
+    "claim_id",
+    "line_id",
+    "receipt_id",
+    "filename",
+    "period_id",
+    "statement_line_id",
+    "category",
+    "amount",
+})
+
+
+def _format_audit_rows(db: Session, rows: list[AuditLog]) -> list[dict]:
     action_labels = {
         "claim.create": "Claim created",
-        "claim.submit": "Submitted",
+        "claim.submit": "Submitted for approval",
         "claim.approve": "Approved",
         "claim.reject": "Rejected",
-        "claim.process": "Processed",
+        "claim.process": "Processed for payment",
         "claim_line.update": "Line updated",
         "receipt.upload": "Receipt uploaded",
         "reconciliation.match": "Statement matched",
@@ -84,6 +242,7 @@ def claim_audit_events(db: Session, claim: Claim) -> list[dict]:
         actor = db.get(User, r.user_id) if r.user_id else None
         detail_items: list[dict] = []
         detail_raw = (r.detail or "").strip()
+        detail_map: dict[str, str] = {}
         if detail_raw:
             for token in detail_raw.split(";"):
                 if "=" not in token:
@@ -93,7 +252,10 @@ def claim_audit_events(db: Session, claim: Claim) -> list[dict]:
                 value = value.strip()
                 if not key or not value:
                     continue
-                detail_items.append({"key": key, "value": value})
+                detail_map[key] = value
+                if key not in TIMELINE_HIDDEN_KEYS:
+                    label = TIMELINE_DETAIL_LABELS.get(key, key.replace("_", " ").title())
+                    detail_items.append({"key": label, "value": value})
         events.append(
             {
                 "id": r.id,
@@ -102,6 +264,7 @@ def claim_audit_events(db: Session, claim: Claim) -> list[dict]:
                 "action_label": action_labels.get(r.action, r.action.replace(".", " ").title()),
                 "detail": r.detail or "",
                 "detail_items": detail_items,
+                "detail_map": detail_map,
                 "actor_name": actor.name if actor else "System",
                 "actor_id": r.user_id,
             }
@@ -109,12 +272,171 @@ def claim_audit_events(db: Session, claim: Claim) -> list[dict]:
     return events
 
 
+def claim_timeline_summary(event: dict, claim: Claim, db: Session) -> str:
+    action = event["action"]
+    detail = event.get("detail_map") or {}
+    if action == "claim.create":
+        return f"Opened for {period_label(claim.period)} ({claim.type.value} claim)."
+    if action == "claim.submit":
+        ref = detail.get("ref") or claim.unique_ref or "this claim"
+        return f"Sent to your manager for approval. Reference {ref}."
+    if action == "claim.approve":
+        actor = event.get("actor_name") or "Manager"
+        comment = detail.get("comment", "").strip()
+        if comment:
+            return f"Approved by {actor}. Comment: {comment}"
+        return f"Approved by {actor}."
+    if action == "claim.reject":
+        actor = event.get("actor_name") or "Manager"
+        comment = detail.get("comment", "").strip()
+        if comment:
+            return f"Rejected by {actor}. Reason: {comment}"
+        return f"Rejected by {actor}."
+    if action == "claim.process":
+        actor = event.get("actor_name") or "Finance"
+        return f"Marked processed by {actor}."
+    return event.get("detail") or ""
+
+
+def claim_timeline_events(db: Session, claim: Claim) -> list[dict]:
+    """Milestone-only timeline for the claim detail page, oldest first."""
+    rows = claim_audit_events(db, claim)
+    timeline = [r for r in rows if r["action"] in CLAIM_TIMELINE_ACTIONS]
+    for event in timeline:
+        event["summary"] = claim_timeline_summary(event, claim, db)
+    timeline.reverse()
+    return timeline
+
+
+def latest_rejection_event(events: list[dict]) -> dict | None:
+    """Return the most recent rejection milestone, if any."""
+    for event in reversed(events):
+        if event.get("action") == "claim.reject":
+            return event
+    return None
+
+
+def require_editable_claim(claim: Claim) -> None:
+    if not claim_is_editable_by_owner(claim):
+        raise HTTPException(400, "This claim can no longer be edited.")
+
+
+def claim_posted_label(claim: Claim) -> tuple[str, str | None]:
+    """Return display label and ISO timestamp for when the claim was posted."""
+    if claim.submitted_at:
+        label = claim.submitted_at.strftime("%d %b %Y · %H:%M").replace(" 0", " ")
+        return label, claim.submitted_at.isoformat()
+    return "Not posted", None
+
+
 def nav_flags(db: Session, user: User) -> dict:
     is_manager = user_is_manager(db, user)
     return {
         "nav_can_manager": is_manager or user.is_finance,
         "nav_can_finance": user.is_finance,
+        "nav_can_admin": user.is_admin,
     }
+
+
+def nav_badge_counts(db: Session, user: User) -> dict:
+    pending_approvals = 0
+    finance_approved = 0
+    if user.is_finance or user_is_manager(db, user):
+        pending_query = select(func.count()).select_from(Claim).where(Claim.status == ClaimStatus.submitted)
+        if not user.is_finance:
+            pending_query = pending_query.where(
+                Claim.user_id.in_(select(User.id).where(User.manager_id == user.id))
+            )
+        pending_approvals = db.scalar(pending_query) or 0
+    if user.is_finance:
+        finance_approved = db.scalar(
+            select(func.count()).select_from(Claim).where(Claim.status == ClaimStatus.approved)
+        ) or 0
+    return {
+        "pending_approvals": pending_approvals,
+        "finance_approved": finance_approved,
+    }
+
+
+def open_periods_for_nav(db: Session, user: User) -> list[dict]:
+    periods = db.scalars(
+        select(Period).where(Period.is_open == True).order_by(Period.type)  # noqa: E712
+    ).all()
+    return [
+        {
+            "id": p.id,
+            "type": p.type,
+            "nav_label": (
+                f"{'Card' if p.type == ClaimType.card else 'Cash'} · "
+                f"{calendar.month_abbr[p.month]} {p.year}"
+            ),
+        }
+        for p in periods
+        if user_can_claim_period(user, p)
+    ]
+
+
+def _dashboard_open_periods(db: Session, user: User) -> list[dict]:
+    periods = db.scalars(
+        select(Period).where(Period.is_open == True).order_by(Period.type)  # noqa: E712
+    ).all()
+    return [
+        {
+            "id": p.id,
+            "type": p.type.value,
+            "label": period_label(p),
+            "deadline": p.deadline.isoformat(),
+            "deadlineLabel": p.deadline.strftime("%d %b %Y").lstrip("0"),
+            "navLabel": (
+                f"{'Card' if p.type == ClaimType.card else 'Cash'} · "
+                f"{calendar.month_abbr[p.month]} {p.year}"
+            ),
+            "startTitle": period_label(p),
+            "startSubtitle": (
+                "Credit card · Barclaycard" if p.type == ClaimType.card else "Cash expenses"
+            ),
+        }
+        for p in periods
+        if user_can_claim_period(user, p)
+    ]
+
+
+def page_context(db: Session, user: User, active_nav: str) -> dict:
+    ctx = {
+        "user": user,
+        "user_initials": user_initials(user.name),
+        "active_nav": active_nav,
+        "open_periods": open_periods_for_nav(db, user),
+    }
+    ctx.update(nav_flags(db, user))
+    return ctx
+
+
+def access_denied_response(
+    request: Request,
+    db: Session,
+    *,
+    title: str,
+    message: str,
+    status_code: int,
+):
+    user = current_user(request)
+    if not user:
+        return HTMLResponse(
+            f"<h1>{title}</h1><p>{message}</p><p><a href='/login'>Sign in</a></p>",
+            status_code=status_code,
+        )
+    return templates.TemplateResponse(
+        request,
+        "access_denied.html",
+        {
+            **page_context(db, user, "dash"),
+            "title": title,
+            "message": message,
+            "status_code": status_code,
+        },
+        status_code=status_code,
+    )
 
 
 def apply_claim_filters(
@@ -152,14 +474,20 @@ def apply_claim_filters(
     return q
 
 
-def build_finance_export_rows(claims: list[Claim]) -> list[list]:
+def build_finance_export_rows(db: Session, claims: list[Claim]) -> list[list]:
     rows: list[list] = []
     for c in claims:
         period_label = f"{c.period.month:02d}/{c.period.year}"
+        approver = claim_approver_name(db, c)
+        submitted = c.submitted_at.isoformat() if c.submitted_at else ""
+        approved = c.approved_at.isoformat() if c.approved_at else ""
         for line in c.lines:
+            if line_is_blank(line):
+                continue
             gross = round(float(line.amount or 0.0), 2)
             vat = round(float(line.vat_amount or 0.0), 2)
             net = round(gross - vat, 2)
+            has_receipt = "yes" if line.receipt else "no"
             rows.append(
                 [
                     line.date.isoformat() if line.date else "",
@@ -169,8 +497,13 @@ def build_finance_export_rows(claims: list[Claim]) -> list[list]:
                     period_label,
                     c.status.value,
                     line.narrative or "",
-                    line.category.value if line.category else "",
+                    line.category.value.replace("_", " ") if line.category else "",
                     line.receipt_ref or "",
+                    "yes" if line.reclaim_vat else "no",
+                    has_receipt,
+                    submitted,
+                    approver or "",
+                    approved,
                     net,
                     vat,
                     gross,
@@ -180,7 +513,7 @@ def build_finance_export_rows(claims: list[Claim]) -> list[list]:
 
 
 FINANCE_EXPORT_HEADERS = [
-    "date",
+    "expense_date",
     "claimant",
     "reference",
     "type",
@@ -189,6 +522,11 @@ FINANCE_EXPORT_HEADERS = [
     "detail",
     "category",
     "receipt_ref",
+    "vat_reclaim",
+    "has_receipt",
+    "submitted_at",
+    "approved_by",
+    "approved_at",
     "net_gbp",
     "vat_gbp",
     "gross_gbp",
@@ -338,10 +676,22 @@ def find_duplicate_receipt_reasons(
 
 # ---------------- Auth ----------------
 @app.get("/login")
-async def login(request: Request):
+async def login(request: Request, as_user: str | None = Query(default=None, alias="as")):
     if settings.dev_login:
         with next(get_db()) as db:
-            user = db.scalar(select(User).order_by(User.id))
+            user = None
+            if as_user:
+                token = as_user.strip()
+                if token.isdigit():
+                    user = db.get(User, int(token))
+                else:
+                    user = db.scalar(select(User).where(User.email == token))
+                    if not user:
+                        user = db.scalar(
+                            select(User).where(User.email.ilike(f"%{token}%")).limit(1)
+                        )
+            if not user:
+                user = db.scalar(select(User).order_by(User.id))
             if not user:
                 # Keep dev login deterministic even before seed data exists.
                 user = User(name="Local Demo User", email="local.demo@example.com")
@@ -394,19 +744,193 @@ if not settings.dev_login:
         app.state.auth_init_error = str(exc)
 
 
-# ---------------- Dashboard ----------------
-@app.get("/", response_class=HTMLResponse)
-def home(request: Request, db: Session = Depends(get_db)):
-    user = current_user(request)
-    if not user:
-        return RedirectResponse("/login", status_code=302)
+CATEGORY_LABELS = {
+    Category.hotel: "Hotel",
+    Category.subsistence: "Subsistence",
+    Category.travel: "Travel",
+    Category.foreign_travel: "Foreign travel",
+    Category.postage: "Postage",
+    Category.staff_entertaining: "Staff entertaining",
+    Category.customer_entertaining: "Customer entertaining",
+    Category.other: "Other",
+    Category.personal: "Personal",
+}
+
+
+def user_initials(name: str) -> str:
+    parts = [p for p in name.split() if p]
+    if len(parts) >= 2:
+        return (parts[0][0] + parts[-1][0]).upper()
+    return name[:2].upper() if name else "??"
+
+
+def period_label(period: Period) -> str:
+    return f"{calendar.month_name[period.month]} {period.year}"
+
+
+def build_dashboard_payload(db: Session, user: User) -> dict:
+    """Serialize live claimant dashboard data for dashboard.html."""
     claims = db.scalars(
         select(Claim).where(Claim.user_id == user.id).order_by(Claim.id.desc())
     ).all()
-    open_periods = db.scalars(select(Period).where(Period.is_open == True)).all()  # noqa: E712
-    return templates.TemplateResponse(request, "aimia-expenses.html", {
-        "user": user, "claims": claims, "open_periods": open_periods,
-    })
+    for claim in claims:
+        _ = claim.lines
+        _ = claim.period
+
+    today = dt.date.today()
+    manager = db.get(User, user.manager_id) if user.manager_id else None
+    open_periods = _dashboard_open_periods(db, user)
+
+    claimed_month = 0.0
+    claims_month_count = 0
+    awaiting_total = 0.0
+    awaiting_count = 0
+    paid_ytd = 0.0
+    paid_ytd_count = 0
+    cat_totals: dict[str, float] = {}
+    status_counts = {s.value: 0 for s in ClaimStatus}
+
+    for claim in claims:
+        status_counts[claim.status.value] += 1
+        if claim.period.year == today.year and claim.period.month == today.month:
+            claimed_month += claim.gross_total
+            claims_month_count += 1
+        if claim.status == ClaimStatus.submitted:
+            awaiting_total += claim.gross_total
+            awaiting_count += 1
+        if claim.status == ClaimStatus.processed and claim.period.year == today.year:
+            paid_ytd += claim.gross_total
+            paid_ytd_count += 1
+        if claim.period.year == today.year:
+            for line in claim.lines:
+                label = CATEGORY_LABELS.get(line.category, line.category.value.replace("_", " ").title())
+                cat_totals[label] = cat_totals.get(label, 0.0) + float(line.amount)
+
+    cat_spend = sorted(cat_totals.items(), key=lambda item: item[1], reverse=True)[:6]
+    next_deadline = min(
+        (dt.date.fromisoformat(p["deadline"]) for p in open_periods),
+        default=None,
+    )
+    first_name = user.name.split()[0] if user.name else "there"
+    hour = dt.datetime.now().hour
+    if hour < 12:
+        greeting = f"Good morning, {first_name}."
+    elif hour < 17:
+        greeting = f"Good afternoon, {first_name}."
+    else:
+        greeting = f"Good evening, {first_name}."
+
+    open_count = len(open_periods)
+    if open_count == 0:
+        lede = "No expense periods are open right now."
+    elif open_count == 1:
+        lede = "Here's where your expenses stand. One period is open for new claims."
+    else:
+        lede = f"Here's where your expenses stand. {open_count} periods are open for new claims."
+
+    if awaiting_count and manager:
+        awaiting_sub = f"{awaiting_count} claim{'s' if awaiting_count != 1 else ''} with {manager.name.split()[0]}"
+    elif awaiting_count:
+        awaiting_sub = f"{awaiting_count} claim{'s' if awaiting_count != 1 else ''} pending"
+    else:
+        awaiting_sub = "Nothing waiting on approval"
+
+    if next_deadline:
+        days = (next_deadline - today).days
+        deadline_main = next_deadline.strftime("%d %b").lstrip("0")
+        deadline_sub = f"{days} day{'s' if days != 1 else ''} away" if days >= 0 else "Passed"
+    else:
+        deadline_main = "—"
+        deadline_sub = "No open periods"
+
+    claim_rows = []
+    history_lines = []
+    for c in claims:
+        if c.status == ClaimStatus.draft and is_claim_empty(c):
+            continue
+        posted_label, posted_at = claim_posted_label(c)
+        record = serialize_claim_record(db, c)
+        claim_rows.append(
+            {
+                "id": c.id,
+                "ref": c.unique_ref or "draft",
+                "type": c.type.value.capitalize(),
+                "period": f"{c.period.year}-{c.period.month:02d}",
+                "pl": period_label(c.period),
+                "postedLabel": posted_label,
+                "postedAt": posted_at,
+                "status": c.status.value,
+                "total": c.gross_total,
+                "approvedBy": record["approved_by_name"],
+            }
+        )
+        for line in record["lines"]:
+            history_lines.append(
+                {
+                    "claimId": c.id,
+                    "ref": record["ref"] or "draft",
+                    "detail": line["narrative"],
+                    "receiptRef": line["receipt_ref"],
+                    "category": line["category"],
+                    "type": record["type"],
+                    "amount": line["amount"],
+                    "postedLabel": record["posted_label"],
+                    "submittedAt": record["submitted_at"],
+                    "status": record["status"],
+                    "approvedBy": record["approved_by_name"],
+                    "receipt": line["receipt"],
+                    "expenseDate": line["date"],
+                }
+            )
+
+    return {
+        "user": {
+            "name": user.name,
+            "email": user.email,
+            "initials": user_initials(user.name),
+        },
+        "greeting": greeting,
+        "lede": lede,
+        "stats": {
+            "claimedMonth": round(claimed_month, 2),
+            "claimsMonthCount": claims_month_count,
+            "awaitingTotal": round(awaiting_total, 2),
+            "awaitingCount": awaiting_count,
+            "awaitingSub": awaiting_sub,
+            "paidYtd": round(paid_ytd, 2),
+            "paidYtdCount": paid_ytd_count,
+            "deadlineMain": deadline_main,
+            "deadlineSub": deadline_sub,
+        },
+        "claims": claim_rows,
+        "historyLines": history_lines,
+        "catSpend": [[label, round(amount, 2)] for label, amount in cat_spend],
+        "statusCounts": status_counts,
+        "openPeriods": open_periods,
+    }
+
+
+# ---------------- Dashboard ----------------
+@app.get("/", response_class=HTMLResponse)
+def home(
+    request: Request,
+    view: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    user = current_user(request)
+    if not user:
+        return RedirectResponse("/login", status_code=302)
+    purge_empty_drafts(db, user.id)
+    dashboard = build_dashboard_payload(db, user)
+    active_nav = "claims" if view == "claims" else "dash"
+    return templates.TemplateResponse(
+        request,
+        "dashboard.html",
+        {
+            **page_context(db, user, active_nav),
+            "dashboard_json": dashboard,
+        },
+    )
 
 
 # ---------------- Manager UI ----------------
@@ -416,21 +940,19 @@ def manager_approvals_page(request: Request, db: Session = Depends(get_db)):
         reviewer = require_manager_or_finance(request, db)
     except HTTPException as exc:
         if exc.status_code in {401, 403}:
-            return templates.TemplateResponse(
+            return access_denied_response(
                 request,
-                "access_denied.html",
-                {
-                    "user": current_user(request),
-                    "title": "Manager approvals access denied",
-                    "message": "You need a manager or finance role to use this page.",
-                    "status_code": exc.status_code,
-                },
+                db,
+                title="Manager approvals access denied",
+                message="You need a manager or finance role to use this page.",
                 status_code=exc.status_code,
             )
         raise
-    context = {"user": reviewer}
-    context.update(nav_flags(db, reviewer))
-    return templates.TemplateResponse(request, "manager_approvals.html", context)
+    return templates.TemplateResponse(
+        request,
+        "manager_approvals.html",
+        page_context(db, reviewer, "manager"),
+    )
 
 
 # ---------------- Finance UI ----------------
@@ -440,21 +962,19 @@ def finance_processing_page(request: Request, db: Session = Depends(get_db)):
         finance_user = require_finance(request)
     except HTTPException as exc:
         if exc.status_code in {401, 403}:
-            return templates.TemplateResponse(
+            return access_denied_response(
                 request,
-                "access_denied.html",
-                {
-                    "user": current_user(request),
-                    "title": "Finance processing access denied",
-                    "message": "You need a finance role to use this page.",
-                    "status_code": exc.status_code,
-                },
+                db,
+                title="Finance processing access denied",
+                message="You need a finance role to use this page.",
                 status_code=exc.status_code,
             )
         raise
-    context = {"user": finance_user}
-    context.update(nav_flags(db, finance_user))
-    return templates.TemplateResponse(request, "finance_processing.html", context)
+    return templates.TemplateResponse(
+        request,
+        "finance_processing.html",
+        page_context(db, finance_user, "finance_processing"),
+    )
 
 
 @app.get("/finance/reconciliation", response_class=HTMLResponse)
@@ -463,21 +983,180 @@ def finance_reconciliation_page(request: Request, db: Session = Depends(get_db))
         finance_user = require_finance(request)
     except HTTPException as exc:
         if exc.status_code in {401, 403}:
-            return templates.TemplateResponse(
+            return access_denied_response(
                 request,
-                "access_denied.html",
-                {
-                    "user": current_user(request),
-                    "title": "Finance reconciliation access denied",
-                    "message": "You need a finance role to use this page.",
-                    "status_code": exc.status_code,
-                },
+                db,
+                title="Finance reconciliation access denied",
+                message="You need a finance role to use this page.",
                 status_code=exc.status_code,
             )
         raise
-    context = {"user": finance_user}
-    context.update(nav_flags(db, finance_user))
-    return templates.TemplateResponse(request, "finance_reconciliation.html", context)
+    return templates.TemplateResponse(
+        request,
+        "finance_reconciliation.html",
+        page_context(db, finance_user, "finance_recon"),
+    )
+
+
+@app.get("/nav/badges")
+def nav_badges(request: Request, db: Session = Depends(get_db)):
+    user = require_user(request)
+    counts = nav_badge_counts(db, user)
+    return {"ok": True, **counts}
+
+
+@app.get("/finance/periods", response_class=HTMLResponse)
+def finance_periods_page(request: Request, db: Session = Depends(get_db)):
+    try:
+        finance_user = require_finance(request)
+    except HTTPException as exc:
+        if exc.status_code in {401, 403}:
+            return access_denied_response(
+                request,
+                db,
+                title="Finance periods access denied",
+                message="You need a finance role to manage claim periods.",
+                status_code=exc.status_code,
+            )
+        raise
+    return templates.TemplateResponse(
+        request,
+        "finance_periods.html",
+        page_context(db, finance_user, "finance_periods"),
+    )
+
+
+@app.get("/admin/users", response_class=HTMLResponse)
+def admin_users_page(request: Request, db: Session = Depends(get_db)):
+    try:
+        admin_user = require_admin(request)
+    except HTTPException as exc:
+        if exc.status_code in {401, 403}:
+            return access_denied_response(
+                request,
+                db,
+                title="Admin access denied",
+                message="You need admin permissions to manage users and roles.",
+                status_code=exc.status_code,
+            )
+        raise
+    return templates.TemplateResponse(
+        request,
+        "admin_users.html",
+        page_context(db, admin_user, "admin_users"),
+    )
+
+
+@app.get("/admin/users/data")
+def admin_users_data(request: Request, db: Session = Depends(get_db)):
+    require_admin(request)
+    users = db.scalars(select(User).order_by(User.name, User.id)).all()
+    for user in users:
+        if user.manager_id:
+            _ = user.manager
+    manager_options = [{"id": u.id, "name": u.name} for u in users]
+    return {
+        "ok": True,
+        "users": [serialize_user_row(db, u) for u in users],
+        "manager_options": manager_options,
+    }
+
+
+@app.post("/admin/users")
+def admin_create_user(
+    request: Request,
+    name: str = Form(...),
+    email: str = Form(...),
+    manager_id: str = Form(""),
+    is_finance: str = Form(""),
+    is_admin: str = Form(""),
+    has_credit_card: str = Form(""),
+    can_claim_cash: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    admin_user = require_admin(request)
+    try:
+        clean_name, clean_email = validate_new_user(name, email, db)
+        parsed_manager_id = int(manager_id) if manager_id.strip() else None
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    user = User(
+        name=clean_name,
+        email=clean_email,
+        manager_id=None,
+        is_finance=parse_bool(is_finance),
+        is_admin=parse_bool(is_admin),
+        has_credit_card=parse_bool(has_credit_card),
+        can_claim_cash=parse_bool(can_claim_cash) if can_claim_cash else True,
+    )
+    db.add(user)
+    db.flush()
+    try:
+        user.manager_id = validate_manager_id(user, parsed_manager_id, db)
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(400, str(exc)) from exc
+    db.commit()
+    db.refresh(user)
+    log(
+        db,
+        admin_user.id,
+        "user.create",
+        f"user_id={user.id};email={user.email}",
+    )
+    return {"ok": True, "user": serialize_user_row(db, user)}
+
+
+@app.post("/admin/users/{user_id}")
+def admin_update_user(
+    user_id: int,
+    request: Request,
+    manager_id: str = Form(""),
+    is_finance: str = Form(""),
+    is_admin: str = Form(""),
+    has_credit_card: str = Form(""),
+    can_claim_cash: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    admin_user = require_admin(request)
+    user = db.get(User, user_id)
+    if not user:
+        raise HTTPException(404, "User not found")
+
+    parsed_manager_id = int(manager_id) if manager_id.strip() else None
+    try:
+        user.manager_id = validate_manager_id(user, parsed_manager_id, db)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    removing_own_admin = user.id == admin_user.id and user.is_admin and not parse_bool(is_admin)
+    if removing_own_admin:
+        other_admins = db.scalar(
+            select(func.count())
+            .select_from(User)
+            .where(User.is_admin == True, User.id != admin_user.id)  # noqa: E712
+        )
+        if not other_admins:
+            raise HTTPException(400, "You cannot remove your own admin access while you are the only admin.")
+
+    user.is_finance = parse_bool(is_finance)
+    user.is_admin = parse_bool(is_admin)
+    user.has_credit_card = parse_bool(has_credit_card)
+    user.can_claim_cash = parse_bool(can_claim_cash)
+    db.commit()
+    db.refresh(user)
+    log(
+        db,
+        admin_user.id,
+        "user.update",
+        (
+            f"user_id={user.id};manager_id={user.manager_id or ''};"
+            f"finance={int(user.is_finance)};admin={int(user.is_admin)};"
+            f"card={int(user.has_credit_card)};cash={int(user.can_claim_cash)}"
+        ),
+    )
+    return {"ok": True, "user": serialize_user_row(db, user)}
 
 
 # ---------------- Claims ----------------
@@ -493,11 +1172,50 @@ def new_claim(request: Request, period_id: int = Form(...),
             f"<p><a href='/'>Return to dashboard</a></p>",
             status_code=400,
         )
+    if not user_can_claim_period(user, period):
+        return HTMLResponse(
+            "<h1>Cannot create claim</h1>"
+            f"<p>You do not have access to start a {period.type.value} claim.</p>"
+            f"<p><a href='/'>Return to dashboard</a></p>",
+            status_code=403,
+        )
+
+    existing = db.scalar(
+        select(Claim)
+        .where(
+            Claim.user_id == user.id,
+            Claim.period_id == period.id,
+            Claim.status.in_([ClaimStatus.draft, ClaimStatus.rejected]),
+        )
+        .order_by(Claim.id.desc())
+    )
+    if existing:
+        if is_claim_empty(existing) and not existing.lines:
+            db.add(ClaimLine(claim_id=existing.id))
+            db.commit()
+        return RedirectResponse(f"/claims/{existing.id}", status_code=302)
+
     claim = Claim(user_id=user.id, period_id=period.id, type=period.type)
     db.add(claim)
+    db.flush()
+    db.add(ClaimLine(claim_id=claim.id))
     db.commit()
     log(db, user.id, "claim.create", f"claim_id={claim.id};period_id={period.id}")
     return RedirectResponse(f"/claims/{claim.id}", status_code=302)
+
+
+@app.post("/claims/{claim_id}/discard")
+def discard_claim(claim_id: int, request: Request, db: Session = Depends(get_db)):
+    """Drop an abandoned empty draft (e.g. user opened claim and left without entering data)."""
+    user = require_user(request)
+    claim = db.get(Claim, claim_id)
+    if not claim or claim.user_id != user.id:
+        raise HTTPException(404)
+    if not is_claim_empty(claim):
+        return {"ok": True, "discarded": False}
+    delete_claim(db, claim)
+    db.commit()
+    return {"ok": True, "discarded": True}
 
 
 @app.get("/claims/{claim_id}", response_class=HTMLResponse)
@@ -506,15 +1224,44 @@ def view_claim(claim_id: int, request: Request, db: Session = Depends(get_db)):
     claim = db.get(Claim, claim_id)
     if not claim or claim.user_id != user.id:
         raise HTTPException(404)
-    events = claim_audit_events(db, claim)
-    context = {
-        "user": user,
-        "claim": claim,
-        "categories": list(Category),
-        "events": events,
-    }
-    context.update(nav_flags(db, user))
-    return templates.TemplateResponse(request, "claim.html", context)
+    if claim.status == ClaimStatus.draft and not claim.lines:
+        db.add(ClaimLine(claim_id=claim.id))
+        db.commit()
+        db.refresh(claim)
+    events = claim_timeline_events(db, claim)
+    today = dt.date.today()
+    period = claim.period
+    approver_name = claim_approver_name(db, claim)
+    approved_at_label = None
+    if claim.approved_at:
+        approved_at_label = claim.approved_at.strftime("%d %b %Y · %H:%M").replace(" 0", " ")
+    submitted_label = None
+    if claim.submitted_at:
+        submitted_label = claim.submitted_at.strftime("%d %b %Y · %H:%M").replace(" 0", " ")
+    display_lines = [line for line in claim.lines if not line_is_blank(line)]
+    for line in display_lines:
+        _ = line.receipt
+    return templates.TemplateResponse(
+        request,
+        "claim.html",
+        {
+            **page_context(db, user, "claims"),
+            "claim": claim,
+            "display_lines": display_lines,
+            "categories": list(Category),
+            "events": events,
+            "claim_period_label": period_label(period),
+            "today_day": today.strftime("%A"),
+            "today_date": f"{today.day} {calendar.month_name[today.month]} {today.year}",
+            "deadline_label": period.deadline.strftime("%d %b %Y").lstrip("0"),
+            "is_editable": claim_is_editable_by_owner(claim),
+            "is_resubmit": claim.status == ClaimStatus.rejected,
+            "rejection_event": latest_rejection_event(events) if claim.status == ClaimStatus.rejected else None,
+            "approver_name": approver_name,
+            "approved_at_label": approved_at_label,
+            "submitted_label": submitted_label,
+        },
+    )
 
 
 @app.get("/claims/{claim_id}/audit")
@@ -524,11 +1271,7 @@ def claim_audit(claim_id: int, request: Request, db: Session = Depends(get_db)):
     if not claim:
         raise HTTPException(404)
 
-    can_view = (
-        claim.user_id == user.id
-        or user.is_finance
-        or claim.user.manager_id == user.id
-    )
+    can_view = can_view_claim(user, claim)
     if not can_view:
         raise HTTPException(403, "Not allowed to view this claim audit")
 
@@ -541,6 +1284,7 @@ def add_line(claim_id: int, request: Request, db: Session = Depends(get_db)):
     claim = db.get(Claim, claim_id)
     if not claim or claim.user_id != user.id:
         raise HTTPException(404)
+    require_editable_claim(claim)
     line = ClaimLine(claim_id=claim.id)
     db.add(line)
     db.commit()
@@ -559,6 +1303,7 @@ def save_line(line_id: int, request: Request,
     line = db.get(ClaimLine, line_id)
     if not line or line.claim.user_id != user.id:
         raise HTTPException(404)
+    require_editable_claim(line.claim)
 
     errors, normalized_date, normalized_category, normalized_amount = (
         validate_claim_line_input(date, category, amount)
@@ -594,6 +1339,7 @@ async def upload_receipt(line_id: int, request: Request,
     line = db.get(ClaimLine, line_id)
     if not line or line.claim.user_id != user.id:
         raise HTTPException(404)
+    require_editable_claim(line.claim)
 
     if not file.filename:
         return JSONResponse(
@@ -680,6 +1426,7 @@ def submit_claim(claim_id: int, request: Request, db: Session = Depends(get_db))
     claim = db.get(Claim, claim_id)
     if not claim or claim.user_id != user.id:
         raise HTTPException(404)
+    require_editable_claim(claim)
 
     # Validation that the old SOP handled by hand:
     problems = []
@@ -698,11 +1445,37 @@ def submit_claim(claim_id: int, request: Request, db: Session = Depends(get_db))
     claim.unique_ref = f"{claim.period.year}{claim.period.month:02d}{claim.id:04d}"
     db.commit()
     log(db, user.id, "claim.submit", f"claim_id={claim.id};ref={claim.unique_ref}")
-    # TODO Phase 2: notify manager (claim.user.manager) for approval.
+    db.refresh(claim)
+    try:
+        notify_manager_claim_submitted(db, claim)
+    except Exception:
+        pass  # notifications must not block submit
     return {"ok": True, "ref": claim.unique_ref}
 
 
 # ---------------- Manager / Finance ----------------
+@app.get("/receipts/{receipt_id}")
+def view_receipt(receipt_id: int, request: Request, db: Session = Depends(get_db)):
+    user = require_user(request)
+    receipt = db.get(Receipt, receipt_id)
+    if not receipt or not receipt.line:
+        raise HTTPException(404, "Receipt not found")
+    claim = receipt.line.claim
+    if not can_view_claim(user, claim):
+        raise HTTPException(403, "Not allowed to view this receipt")
+    path = (receipt.file_path or "").strip()
+    if not path or not os.path.isfile(path):
+        raise HTTPException(404, "Receipt file not found")
+    ext = os.path.splitext(path)[1].lower()
+    media_type = RECEIPT_MEDIA_TYPES.get(ext, "application/octet-stream")
+    return FileResponse(
+        path,
+        media_type=media_type,
+        filename=os.path.basename(path),
+        content_disposition_type="inline",
+    )
+
+
 @app.get("/manager/claims/pending")
 def manager_pending_claims(request: Request, db: Session = Depends(get_db)):
     reviewer = require_manager_or_finance(request, db)
@@ -715,20 +1488,7 @@ def manager_pending_claims(request: Request, db: Session = Depends(get_db)):
         "reviewer_id": reviewer.id,
         "is_finance": reviewer.is_finance,
         "count": len(claims),
-        "claims": [
-            {
-                "id": c.id,
-                "ref": c.unique_ref,
-                "user_id": c.user_id,
-                "claimant_name": c.user.name,
-                "period_id": c.period_id,
-                "period_label": f"{c.period.month:02d}/{c.period.year}",
-                "type": c.type.value,
-                "status": c.status.value,
-                "gross_total": c.gross_total,
-            }
-            for c in claims
-        ],
+        "claims": [serialize_claim_record(db, c) for c in claims],
     }
 
 
@@ -771,8 +1531,13 @@ def manager_claim_decision(
         action = "claim.reject"
 
     db.commit()
-    detail = f"claim_id={claim.id};decision={normalized};comment={trimmed_comment[:120]}"
+    detail = f"claim_id={claim.id};decision={normalized};comment={trimmed_comment[:400]}"
     log(db, reviewer.id, action, detail)
+    db.refresh(claim)
+    try:
+        notify_claimant_decision(db, claim, reviewer, normalized, trimmed_comment)
+    except Exception:
+        pass
     return {"ok": True, "claim_id": claim.id, "status": claim.status.value, "comment": trimmed_comment}
 
 
@@ -790,20 +1555,7 @@ def finance_approved_claims(
     return {
         "ok": True,
         "count": len(claims),
-        "claims": [
-            {
-                "id": c.id,
-                "ref": c.unique_ref,
-                "user_id": c.user_id,
-                "claimant_name": c.user.name,
-                "period_id": c.period_id,
-                "period_label": f"{c.period.month:02d}/{c.period.year}",
-                "type": c.type.value,
-                "status": c.status.value,
-                "gross_total": c.gross_total,
-            }
-            for c in claims
-        ],
+        "claims": [serialize_claim_record(db, c) for c in claims],
         "reviewed_by": finance_user.id,
     }
 
@@ -824,6 +1576,22 @@ def finance_reconciliation_data(
         statement_query = statement_query.where(StatementLine.year == year, StatementLine.month == month)
     statement_lines = db.scalars(statement_query).all()
 
+    card_line_query = (
+        select(ClaimLine)
+        .join(Claim, ClaimLine.claim_id == Claim.id)
+        .join(Period, Claim.period_id == Period.id)
+        .where(Claim.type == ClaimType.card, Claim.status.in_([ClaimStatus.approved, ClaimStatus.processed]))
+        .order_by(ClaimLine.id.desc())
+    )
+    if period_filter:
+        year, month = period_filter
+        card_line_query = card_line_query.where(Period.year == year, Period.month == month)
+    card_lines = db.scalars(card_line_query).all()
+    for line in card_lines:
+        _ = line.claim.user
+
+    unmatched_index = index_unmatched_card_lines(card_lines)
+
     statement_rows = []
     for s in statement_lines:
         if s.claim_line:
@@ -842,9 +1610,11 @@ def finance_reconciliation_data(
                 "claim_ref": c.unique_ref or "",
                 "claimant": c.user.name,
                 "claim_amount": s.claim_line.amount,
+                "suggested_match": None,
             }
         else:
             row_status = "unmatched_statement"
+            suggestion = suggest_match_for_statement(s, unmatched_index)
             row = {
                 "statement_line_id": s.id,
                 "date": s.posted_date.isoformat() if s.posted_date else "",
@@ -858,20 +1628,9 @@ def finance_reconciliation_data(
                 "claim_ref": "",
                 "claimant": "",
                 "claim_amount": None,
+                "suggested_match": suggestion,
             }
         statement_rows.append(row)
-
-    card_line_query = (
-        select(ClaimLine)
-        .join(Claim, ClaimLine.claim_id == Claim.id)
-        .join(Period, Claim.period_id == Period.id)
-        .where(Claim.type == ClaimType.card, Claim.status.in_([ClaimStatus.approved, ClaimStatus.processed]))
-        .order_by(ClaimLine.id.desc())
-    )
-    if period_filter:
-        year, month = period_filter
-        card_line_query = card_line_query.where(Period.year == year, Period.month == month)
-    card_lines = db.scalars(card_line_query).all()
 
     missing_rows = []
     for l in card_lines:
@@ -906,6 +1665,124 @@ def finance_reconciliation_data(
         "statement_rows": statement_rows,
         "missing_claim_rows": missing_rows,
     }
+
+
+def serialize_period_row(period: Period) -> dict:
+    return {
+        "id": period.id,
+        "year": period.year,
+        "month": period.month,
+        "type": period.type.value,
+        "label": period_label(period),
+        "deadline": period.deadline.isoformat(),
+        "is_open": period.is_open,
+    }
+
+
+@app.get("/finance/periods/data")
+def finance_periods_data(request: Request, db: Session = Depends(get_db)):
+    require_finance(request)
+    periods = db.scalars(
+        select(Period).order_by(Period.year.desc(), Period.month.desc(), Period.type)
+    ).all()
+    return {"ok": True, "periods": [serialize_period_row(p) for p in periods]}
+
+
+@app.post("/finance/periods")
+def finance_create_period(
+    request: Request,
+    year: int = Form(...),
+    month: int = Form(...),
+    claim_type: str = Form(...),
+    deadline: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    require_finance(request)
+    if month < 1 or month > 12:
+        raise HTTPException(400, "Month must be between 1 and 12.")
+    try:
+        mapped_type = ClaimType(claim_type.strip().lower())
+    except ValueError:
+        raise HTTPException(400, "Type must be cash or card.")
+    try:
+        deadline_date = dt.date.fromisoformat(deadline.strip())
+    except ValueError:
+        raise HTTPException(400, "Deadline must be YYYY-MM-DD.")
+
+    existing = db.scalar(
+        select(Period).where(
+            Period.year == year,
+            Period.month == month,
+            Period.type == mapped_type,
+        )
+    )
+    if existing:
+        raise HTTPException(400, "A period with that year, month, and type already exists.")
+
+    period = Period(
+        year=year,
+        month=month,
+        type=mapped_type,
+        deadline=deadline_date,
+        is_open=True,
+    )
+    db.add(period)
+    db.commit()
+    db.refresh(period)
+    return {"ok": True, "period": serialize_period_row(period)}
+
+
+@app.post("/finance/periods/{period_id}/toggle")
+def finance_toggle_period(period_id: int, request: Request, db: Session = Depends(get_db)):
+    require_finance(request)
+    period = db.get(Period, period_id)
+    if not period:
+        raise HTTPException(404, "Period not found")
+    period.is_open = not period.is_open
+    db.commit()
+    return {"ok": True, "period_id": period.id, "is_open": period.is_open}
+
+
+@app.post("/finance/reconciliation/import")
+async def finance_import_statement_csv(
+    request: Request,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    finance_user = require_finance(request)
+    if not file.filename:
+        raise HTTPException(400, "No file selected.")
+    if not file.filename.lower().endswith(".csv"):
+        raise HTTPException(400, "Upload a .csv statement file.")
+
+    data = await file.read()
+    parsed_rows, errors = parse_statement_csv(data)
+    if not parsed_rows:
+        detail = errors[0] if errors else "No rows imported."
+        raise HTTPException(400, detail)
+
+    created = 0
+    for row in parsed_rows:
+        db.add(
+            StatementLine(
+                year=row["year"],
+                month=row["month"],
+                posted_date=row["posted_date"],
+                cardholder_name=row["cardholder_name"],
+                merchant=row["merchant"],
+                amount=row["amount"],
+                currency=row["currency"],
+            )
+        )
+        created += 1
+    db.commit()
+    log(
+        db,
+        finance_user.id,
+        "statement.import",
+        f"rows={created};filename={file.filename[:120]}",
+    )
+    return {"ok": True, "imported": created, "warnings": errors[:20]}
 
 
 @app.post("/finance/reconciliation/statement-lines/{statement_line_id}/match")
@@ -955,7 +1832,7 @@ def finance_export_csv(
     q = select(Claim).order_by(Claim.id.desc())
     q = apply_claim_filters(q, period=period, claim_type=claim_type, status=status)
     claims = db.scalars(q).all()
-    rows = build_finance_export_rows(claims)
+    rows = build_finance_export_rows(db, claims)
 
     out = io.StringIO()
     writer = csv.writer(out)
@@ -981,7 +1858,7 @@ def finance_export_xlsx(
     q = select(Claim).order_by(Claim.id.desc())
     q = apply_claim_filters(q, period=period, claim_type=claim_type, status=status)
     claims = db.scalars(q).all()
-    rows = build_finance_export_rows(claims)
+    rows = build_finance_export_rows(db, claims)
 
     wb = Workbook()
     ws = wb.active
@@ -1004,6 +1881,45 @@ def finance_export_xlsx(
     )
 
 
+@app.get("/finance/exports/lines.pdf")
+def finance_export_pdf(
+    request: Request,
+    period: str = Query("all"),
+    claim_type: str = Query("all", alias="type"),
+    status: str = Query("all"),
+    db: Session = Depends(get_db),
+):
+    require_finance(request)
+    q = select(Claim).order_by(Claim.id.desc())
+    q = apply_claim_filters(q, period=period, claim_type=claim_type, status=status)
+    claims = db.scalars(q).all()
+    rows = build_finance_export_rows(db, claims)
+    subtitle = f"Period: {period} · Type: {claim_type} · Status: {status} · Rows: {len(rows)}"
+    payload = build_period_export_pdf(
+        FINANCE_EXPORT_HEADERS,
+        rows,
+        title="Aimia expense export",
+        subtitle=subtitle,
+    )
+    filename = f"finance-lines-{period}-{claim_type}-{status}.pdf".replace("/", "-")
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    return Response(content=bytes(payload), media_type="application/pdf", headers=headers)
+
+
+@app.get("/finance/exports/claims/{claim_id}.pdf")
+def finance_export_claim_pdf(claim_id: int, request: Request, db: Session = Depends(get_db)):
+    require_finance(request)
+    claim = db.get(Claim, claim_id)
+    if not claim:
+        raise HTTPException(404, "Claim not found")
+    record = serialize_claim_record(db, claim)
+    payload = build_claim_export_pdf(record)
+    ref = (record.get("ref") or f"claim-{claim_id}").replace("/", "-")
+    filename = f"claim-{ref}.pdf"
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    return Response(content=bytes(payload), media_type="application/pdf", headers=headers)
+
+
 @app.post("/finance/claims/{claim_id}/process")
 def finance_process_claim(claim_id: int, request: Request, db: Session = Depends(get_db)):
     finance_user = require_finance(request)
@@ -1016,4 +1932,9 @@ def finance_process_claim(claim_id: int, request: Request, db: Session = Depends
     claim.status = ClaimStatus.processed
     db.commit()
     log(db, finance_user.id, "claim.process", f"claim_id={claim.id}")
+    db.refresh(claim)
+    try:
+        notify_claimant_processed(db, claim, finance_user)
+    except Exception:
+        pass
     return {"ok": True, "claim_id": claim.id, "status": claim.status.value}

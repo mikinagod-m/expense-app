@@ -3,29 +3,114 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Aimia Expenses</title>
+  <title>{% block title %}Aimia Expenses{% endblock %}</title>
   <script src="https://unpkg.com/htmx.org@2.0.4"></script>
-  <link rel="stylesheet" href="/static/app.css">
+  <link rel="stylesheet" href="/static/aimia-shell.css">
+  {% block head_extra %}{% endblock %}
 </head>
 <body>
-  <header>
-    <strong>Aimia Expenses</strong>
-    {% if user %}
-      <span class="right nav-links">
-        <a href="/">dashboard</a>
+<div class="app">
+  <aside class="sidebar">
+    <a href="/" class="brand" style="text-decoration:none;color:inherit"><span class="m">A</span><span><b>Aimia</b> Expenses</span></a>
+    {% if not nav_can_manager and not nav_can_finance and not nav_can_admin %}
+    <style>.roleswitch{display:none}</style>
+    {% endif %}
+    <div class="roleswitch">
+      <button type="button" class="{% if active_nav in ['dash', 'claims'] %}on{% endif %}" onclick="location.href='/'">Claimant</button>
+      {% if nav_can_manager %}
+      <button type="button" class="{% if active_nav == 'manager' %}on{% endif %}" onclick="location.href='/manager/approvals'">Manager</button>
+      {% endif %}
+      {% if nav_can_finance %}
+      <button type="button" class="{% if active_nav in ['finance_processing', 'finance_recon'] %}on{% endif %}" onclick="location.href='/finance/processing'">Finance</button>
+      {% endif %}
+    </div>
+
+    <nav id="nav-links" aria-label="Primary">
+      <a href="/" class="nav-item {% if active_nav == 'dash' %}on{% endif %}"><span class="i">◧</span>Dashboard</a>
+      <a href="/?view=claims" class="nav-item {% if active_nav == 'claims' %}on{% endif %}"><span class="i">▤</span>My claims</a>
+      {% if nav_can_manager %}
+      <a href="/manager/approvals" class="nav-item {% if active_nav == 'manager' %}on{% endif %}"><span class="i">✓</span>Approvals<span class="badge" id="nav-badge-approvals" hidden></span></a>
+      {% endif %}
+      {% if nav_can_finance %}
+      <a href="/finance/processing" class="nav-item {% if active_nav == 'finance_processing' %}on{% endif %}"><span class="i">▤</span>Processing<span class="badge" id="nav-badge-finance" hidden></span></a>
+      <a href="/finance/periods" class="nav-item {% if active_nav == 'finance_periods' %}on{% endif %}"><span class="i">◷</span>Periods</a>
+      <a href="/finance/reconciliation" class="nav-item {% if active_nav == 'finance_recon' %}on{% endif %}"><span class="i">⇄</span>Reconciliation</a>
+      {% endif %}
+      {% if nav_can_admin %}
+      <a href="/admin/users" class="nav-item {% if active_nav == 'admin_users' %}on{% endif %}"><span class="i">⚙</span>Users &amp; roles</a>
+      {% endif %}
+      {% if open_periods %}
+      <div class="nav-sep">Open periods</div>
+      {% for p in open_periods %}
+      <form method="post" action="/claims/new" class="nav-period-form">
+        <input type="hidden" name="period_id" value="{{ p.id }}">
+        <button type="submit" class="nav-item nav-item-btn">
+          <span class="i">{% if p.type.value == 'card' %}▣{% else %}◆{% endif %}</span>{{ p.nav_label }}
+        </button>
+      </form>
+      {% endfor %}
+      {% endif %}
+    </nav>
+  </aside>
+
+  <div class="main">
+    <header class="page-header">
+      <div class="page-header-left">
+        {% block header_left %}{% endblock %}
+      </div>
+      <div class="user-menu">
+        <span class="av sm" aria-hidden="true">{{ user_initials }}</span>
+        <span class="user-menu-text">
+          <strong>{{ user.name }}</strong>
+          <small>{{ user.email }}</small>
+        </span>
+        <a href="/logout" class="logout-link">Log out</a>
+      </div>
+    </header>
+
+    <div class="topbar">
+      <a href="/" class="brand" style="text-decoration:none;color:inherit"><span class="m">A</span><b>Aimia</b></a>
+      <div class="roleswitch">
+        <button type="button" class="{% if active_nav in ['dash', 'claims'] %}on{% endif %}" onclick="location.href='/'">Claim</button>
         {% if nav_can_manager %}
-          · <a href="/manager/approvals">manager approvals</a>
+        <button type="button" class="{% if active_nav == 'manager' %}on{% endif %}" onclick="location.href='/manager/approvals'">Approve</button>
         {% endif %}
         {% if nav_can_finance %}
-          · <a href="/finance/processing">finance processing</a>
-          · <a href="/finance/reconciliation">reconciliation</a>
+        <button type="button" class="{% if active_nav in ['finance_processing', 'finance_recon'] %}on{% endif %}" onclick="location.href='/finance/processing'">Finance</button>
         {% endif %}
-        · {{ user.name }} · <a href="/logout">log out</a>
-      </span>
-    {% endif %}
-  </header>
-  <main>
-    {% block content %}{% endblock %}
-  </main>
+      </div>
+      <div class="user-menu compact">
+        <span class="av sm" aria-hidden="true">{{ user_initials }}</span>
+        <a href="/logout" class="logout-link">Log out</a>
+      </div>
+    </div>
+
+    <div class="content">
+      {% block content %}{% endblock %}
+    </div>
+  </div>
+</div>
+
+<nav class="tabbar" aria-label="Mobile">
+  <a href="/" class="tab {% if active_nav == 'dash' %}on{% endif %}"><span class="ti">◧</span>Dashboard</a>
+  <a href="/?view=claims" class="tab {% if active_nav == 'claims' %}on{% endif %}"><span class="ti">▤</span>Claims</a>
+  {% if nav_can_manager %}
+  <a href="/manager/approvals" class="tab {% if active_nav == 'manager' %}on{% endif %}"><span class="ti">✓</span>Approve<span class="badge" id="nav-badge-approvals-mobile" hidden></span></a>
+  {% endif %}
+  {% if nav_can_finance %}
+  <a href="/finance/processing" class="tab {% if active_nav == 'finance_processing' %}on{% endif %}"><span class="ti">▤</span>Process<span class="badge" id="nav-badge-finance-mobile" hidden></span></a>
+  {% endif %}
+</nav>
+<div class="toast" id="toast"></div>
+<div id="receipt-lightbox" class="receipt-lightbox" hidden aria-hidden="true">
+  <div class="receipt-lightbox-backdrop" data-close-lightbox></div>
+  <div class="receipt-lightbox-panel" role="dialog" aria-modal="true" aria-label="Receipt preview">
+    <button type="button" class="receipt-lightbox-close" data-close-lightbox aria-label="Close">×</button>
+    <div id="receipt-lightbox-body" class="receipt-lightbox-body"></div>
+  </div>
+</div>
+<script src="/static/receipt-lightbox.js"></script>
+<script src="/static/nav-badges.js"></script>
+{% block scripts %}{% endblock %}
 </body>
 </html>
